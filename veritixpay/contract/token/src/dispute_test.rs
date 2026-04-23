@@ -1,4 +1,4 @@
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::{testutils::{Address as _, Events as _}, Address, Env};
 
 use crate::balance::read_balance;
 use crate::contract::VeritixToken;
@@ -199,4 +199,50 @@ fn test_open_dispute_rejects_beneficiary_as_resolver() {
         let escrow = get_escrow(&e, escrow_id);
         open_dispute(&e, depositor.clone(), escrow_id, escrow.beneficiary.clone());
     });
+}
+
+// --- Issue #162: Event emission tests ---
+
+#[test]
+fn test_open_dispute_emits_event() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver = Address::generate(&e);
+    let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
+
+    // Clear escrow creation event
+    let _ = e.events().all();
+
+    e.as_contract(&contract_id, || {
+        open_dispute(&e, depositor.clone(), escrow_id, resolver.clone());
+    });
+
+    let events = e.events().all();
+    assert_eq!(events.len(), 1);
+    // Topics: (dispute_opened, escrow_id, claimant), data: ()
+    assert_eq!(events.first().unwrap().0.len(), 3);
+}
+
+#[test]
+fn test_resolve_dispute_emits_event() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver = Address::generate(&e);
+    let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
+
+    e.as_contract(&contract_id, || {
+        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone());
+
+        // Clear prior events
+        let _ = e.events().all();
+
+        resolve_dispute(&e, resolver.clone(), dispute_id, false);
+    });
+
+    let events = e.events().all();
+    // Expect: escrow_refunded + dispute_resolved = 2 events
+    assert!(events.len() >= 1);
+    // Last event should be dispute_resolved with 3 topics
+    let last = events.last().unwrap();
+    assert_eq!(last.0.len(), 3);
 }

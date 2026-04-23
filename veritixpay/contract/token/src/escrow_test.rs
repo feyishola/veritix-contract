@@ -504,3 +504,74 @@ fn test_refund_by_beneficiary_panics() {
         refund_escrow(&e, beneficiary.clone(), escrow_id);
     });
 }
+
+// --- Issue #162: Event emission tests ---
+
+#[test]
+fn test_create_escrow_emits_event() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let depositor = Address::generate(&e);
+    let beneficiary = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor.clone(), 1000);
+        create_escrow(&e, depositor.clone(), beneficiary.clone(), 1000, 1000);
+    });
+
+    let events = e.events().all();
+    assert_eq!(events.len(), 1);
+    // Topics: (escrow_created, depositor, beneficiary), data: amount
+    assert_eq!(events.first().unwrap().0.len(), 3);
+}
+
+#[test]
+fn test_release_escrow_emits_event() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let depositor = Address::generate(&e);
+    let beneficiary = Address::generate(&e);
+    let mut escrow_id = 0u32;
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor.clone(), 1000);
+        escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), 1000, 1000);
+    });
+
+    // Clear create event
+    let _ = e.events().all();
+
+    e.as_contract(&contract_id, || {
+        release_escrow(&e, beneficiary.clone(), escrow_id);
+    });
+
+    let events = e.events().all();
+    assert_eq!(events.len(), 1);
+    // Topics: (escrow_released, escrow_id, beneficiary), data: amount
+    assert_eq!(events.first().unwrap().0.len(), 3);
+}
+
+#[test]
+fn test_refund_escrow_emits_event() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let depositor = Address::generate(&e);
+    let beneficiary = Address::generate(&e);
+    let mut escrow_id = 0u32;
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor.clone(), 1000);
+        escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), 1000, 1000);
+    });
+
+    let _ = e.events().all();
+
+    e.as_contract(&contract_id, || {
+        refund_escrow(&e, depositor.clone(), escrow_id);
+    });
+
+    let events = e.events().all();
+    assert_eq!(events.len(), 1);
+    // Topics: (escrow_refunded, escrow_id, depositor), data: amount
+    assert_eq!(events.first().unwrap().0.len(), 3);
+}

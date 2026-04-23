@@ -18,7 +18,7 @@ use crate::recurring::{
 };
 use crate::splitter::{
     cancel_split as split_cancel, create_split as split_create, distribute as split_distribute,
-    get_split as split_get, SplitRecipient, SplitRecord,
+    get_split as split_get, SplitRecord, SplitRecipient,
 };
 use crate::validation::{require_not_frozen_account, require_positive_amount};
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String, Vec};

@@ -521,3 +521,26 @@ fn test_transfer_from_over_allowance_panics() {
     // Attempt to spend more than the approved allowance.
     client.transfer_from(&spender, &user, &receiver, &200i128);
 }
+
+// --- Issue #162: Event emission tests ---
+
+// NOTE: freeze/unfreeze currently emit no events — this is a known gap.
+// The functions below test the events that ARE emitted.
+
+#[test]
+fn test_set_admin_emits_event() {
+    let (env, admin, _user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let new_admin = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    let _ = env.events().all();
+
+    client.set_admin(&new_admin);
+
+    let events = env.events().all();
+    assert_eq!(events.len(), 1);
+    // Topics: (admin_set, current_admin), data: new_admin
+    assert_eq!(events.first().unwrap().0.len(), 2);
+}
