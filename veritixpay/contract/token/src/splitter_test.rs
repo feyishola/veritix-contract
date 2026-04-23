@@ -234,3 +234,57 @@ fn test_create_split_rejects_non_positive_amount() {
         create_split(&e, sender.clone(), recipients, 0);
     });
 }
+
+#[test]
+#[should_panic(expected = "TooManyRecipients: maximum 20 recipients allowed")]
+fn test_create_split_too_many_recipients_panics() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 1000);
+        // Build 21 recipients each with equal share — total bps won't matter since
+        // the cap check fires first.
+        let mut pairs: soroban_sdk::Vec<SplitRecipient> = soroban_sdk::Vec::new(&e);
+        for _ in 0..21 {
+            pairs.push_back(SplitRecipient {
+                address: Address::generate(&e),
+                share_bps: 476, // approximate; cap check fires before bps validation
+            });
+        }
+        create_split(&e, sender.clone(), pairs, 1000);
+    });
+}
+
+#[test]
+fn test_split_create_and_distribute_preserves_supply() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+    let r2 = Address::generate(&e);
+    let amount = 1_000i128;
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), amount);
+        crate::balance::increase_supply(&e, amount);
+
+        let contract_addr = e.current_contract_address();
+        let all = [sender.clone(), r1.clone(), r2.clone(), contract_addr.clone()];
+
+        let assert_invariant = |addrs: &[Address]| {
+            let sum = addrs.iter().fold(0i128, |s, a| s + read_balance(&e, a.clone()));
+            assert_eq!(crate::balance::read_total_supply(&e), sum);
+        };
+
+        assert_invariant(&all);
+
+        let recipients = make_recipients(&e, &[(r1.clone(), 5000), (r2.clone(), 5000)]);
+        let split_id = create_split(&e, sender.clone(), recipients, amount);
+        assert_invariant(&all);
+
+        distribute(&e, sender.clone(), split_id);
+        assert_invariant(&all);
+    });
+}

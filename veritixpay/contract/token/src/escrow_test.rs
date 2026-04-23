@@ -345,85 +345,162 @@ fn test_create_escrow_same_address_panics() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "not beneficiary")]
 fn test_release_unauthorized_panics() {
     let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
     let depositor = Address::generate(&e);
     let beneficiary = Address::generate(&e);
     let hacker = Address::generate(&e);
     let amount = 1_000i128;
 
-    crate::balance::receive_balance(&e, depositor.clone(), amount);
+    let mut escrow_id = 0u32;
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor.clone(), amount);
+        escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
+    });
 
-    let escrow_id = create_escrow(&e, depositor, beneficiary, amount, 1000);
-
-    // Hacker (not beneficiary) tries to release.
-    release_escrow(&e, hacker, escrow_id);
+    e.as_contract(&contract_id, || {
+        release_escrow(&e, hacker, escrow_id);
+    });
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "not depositor")]
 fn test_refund_unauthorized_panics() {
     let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
     let depositor = Address::generate(&e);
     let beneficiary = Address::generate(&e);
     let amount = 1_000i128;
 
-    crate::balance::receive_balance(&e, depositor.clone(), amount);
+    let mut escrow_id = 0u32;
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor.clone(), amount);
+        escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
+    });
 
-    let escrow_id = create_escrow(&e, depositor, beneficiary.clone(), amount, 1000);
-
-    // Beneficiary (not depositor) tries to refund.
-    refund_escrow(&e, beneficiary, escrow_id);
+    e.as_contract(&contract_id, || {
+        refund_escrow(&e, beneficiary.clone(), escrow_id);
+    });
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "already settled")]
 fn test_double_release_panics() {
     let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
     let depositor = Address::generate(&e);
     let beneficiary = Address::generate(&e);
     let amount = 1_000i128;
 
-    crate::balance::receive_balance(&e, depositor.clone(), amount);
-
-    let escrow_id = create_escrow(&e, depositor, beneficiary.clone(), amount, 1000);
-
-    release_escrow(&e, beneficiary.clone(), escrow_id);
-    // Second release should panic.
-    release_escrow(&e, beneficiary, escrow_id);
+    let mut escrow_id = 0u32;
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor.clone(), amount);
+        escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
+        release_escrow(&e, beneficiary.clone(), escrow_id);
+        release_escrow(&e, beneficiary.clone(), escrow_id);
+    });
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "already settled")]
 fn test_double_refund_panics() {
     let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
     let depositor = Address::generate(&e);
     let beneficiary = Address::generate(&e);
     let amount = 1_000i128;
 
-    crate::balance::receive_balance(&e, depositor.clone(), amount);
-
-    let escrow_id = create_escrow(&e, depositor.clone(), beneficiary, amount, 1000);
-
-    refund_escrow(&e, depositor.clone(), escrow_id);
-    // Second refund should panic.
-    refund_escrow(&e, depositor, escrow_id);
+    let mut escrow_id = 0u32;
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor.clone(), amount);
+        escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
+        refund_escrow(&e, depositor.clone(), escrow_id);
+        refund_escrow(&e, depositor.clone(), escrow_id);
+    });
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "already settled")]
 fn test_release_after_refund_panics() {
     let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
     let depositor = Address::generate(&e);
     let beneficiary = Address::generate(&e);
     let amount = 1_000i128;
 
-    crate::balance::receive_balance(&e, depositor.clone(), amount);
+    let mut escrow_id = 0u32;
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor.clone(), amount);
+        escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
+        refund_escrow(&e, depositor.clone(), escrow_id);
+        release_escrow(&e, beneficiary.clone(), escrow_id);
+    });
+}
 
-    let escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
+#[test]
+#[should_panic(expected = "amount must be positive")]
+fn test_create_escrow_zero_amount_panics() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let depositor = Address::generate(&e);
+    let beneficiary = Address::generate(&e);
 
-    refund_escrow(&e, depositor, escrow_id);
-    // Any attempt to release after refund should panic.
-    release_escrow(&e, beneficiary, escrow_id);
+    e.as_contract(&contract_id, || {
+        create_escrow(&e, depositor.clone(), beneficiary.clone(), 0, 1000);
+    });
+}
+
+#[test]
+#[should_panic(expected = "amount must be positive")]
+fn test_create_escrow_negative_amount_panics() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let depositor = Address::generate(&e);
+    let beneficiary = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        create_escrow(&e, depositor.clone(), beneficiary.clone(), -1, 1000);
+    });
+}
+
+#[test]
+#[should_panic(expected = "not beneficiary")]
+fn test_release_by_depositor_panics() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let depositor = Address::generate(&e);
+    let beneficiary = Address::generate(&e);
+    let amount = 1_000i128;
+
+    let mut escrow_id = 0u32;
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor.clone(), amount);
+        escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
+    });
+
+    e.as_contract(&contract_id, || {
+        release_escrow(&e, depositor.clone(), escrow_id);
+    });
+}
+
+#[test]
+#[should_panic(expected = "not depositor")]
+fn test_refund_by_beneficiary_panics() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let depositor = Address::generate(&e);
+    let beneficiary = Address::generate(&e);
+    let amount = 1_000i128;
+
+    let mut escrow_id = 0u32;
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor.clone(), amount);
+        escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
+    });
+
+    e.as_contract(&contract_id, || {
+        refund_escrow(&e, beneficiary.clone(), escrow_id);
+    });
 }

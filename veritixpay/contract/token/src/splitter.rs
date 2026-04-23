@@ -37,6 +37,13 @@ pub fn create_split(
         panic!("recipients list cannot be empty");
     }
 
+    // Cap at 20 recipients to stay within Soroban per-tx computational and
+    // ledger entry limits. Exceeding this could cause mid-distribution failures
+    // that leave funds stuck in the contract.
+    if recipients.len() > 20 {
+        panic!("TooManyRecipients: maximum 20 recipients allowed");
+    }
+
     // 2. Validate recipients: no zero-share, no duplicates; BPS sums to 10000
     let mut total_bps: u32 = 0;
     for i in 0..recipients.len() {
