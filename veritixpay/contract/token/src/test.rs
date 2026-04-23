@@ -489,3 +489,35 @@ fn test_freeze_and_unfreeze_emit_observable_events() {
     );
     assert_eq!(unfreeze_event.1.into_val(&env), admin.into());
 }
+
+#[test]
+#[should_panic]
+fn test_freeze_by_non_admin_panics() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let attacker = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    env.set_auths(&[]);
+
+    client.freeze(&attacker);
+    let _ = user; // suppress unused warning
+}
+
+#[test]
+#[should_panic]
+fn test_transfer_from_over_allowance_panics() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let spender = Address::generate(&env);
+    let receiver = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1000i128);
+    client.approve(&user, &spender, &100i128, &1000u32);
+
+    // Attempt to spend more than the approved allowance.
+    client.transfer_from(&spender, &user, &receiver, &200i128);
+}

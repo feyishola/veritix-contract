@@ -209,4 +209,35 @@ mod recurring_tests {
             ]
         );
     }
+
+    #[test]
+    fn test_recurring_execute_preserves_supply() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let (payer, payee, id) = fund_and_setup(&e, &contract_id, 1_000, 100);
+
+        e.as_contract(&contract_id, || {
+            crate::balance::increase_supply(&e, 1_000);
+
+            let assert_invariant = || {
+                let sum = read_balance(&e, payer.clone()) + read_balance(&e, payee.clone());
+                assert_eq!(crate::balance::read_total_supply(&e), sum);
+            };
+
+            assert_invariant();
+
+            e.ledger().set_sequence_number(e.ledger().sequence() + 101);
+            execute_recurring(&e, id);
+            assert_invariant();
+
+            // Fund payer for a second execution
+            crate::balance::receive_balance(&e, payer.clone(), 1_000);
+            crate::balance::increase_supply(&e, 1_000);
+            assert_invariant();
+
+            e.ledger().set_sequence_number(e.ledger().sequence() + 101);
+            execute_recurring(&e, id);
+            assert_invariant();
+        });
+    }
 }
