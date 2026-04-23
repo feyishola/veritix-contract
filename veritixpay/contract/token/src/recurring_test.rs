@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod recurring_tests {
     use soroban_sdk::{
-        testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation},
+        testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, Events as _},
         Address, Env, IntoVal,
     };
 
@@ -239,5 +239,57 @@ mod recurring_tests {
             execute_recurring(&e, id);
             assert_invariant();
         });
+    }
+
+    // --- Issue #162: Event emission tests ---
+
+    #[test]
+    fn test_setup_recurring_emits_event() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let (_payer, _payee, _id) = fund_and_setup(&e, &contract_id, 500, 100);
+
+        let events = e.events().all();
+        assert_eq!(events.len(), 1);
+        // Topics: (recurring_setup, payer), data: (payee, amount)
+        assert_eq!(events.first().unwrap().0.len(), 2);
+    }
+
+    #[test]
+    fn test_execute_recurring_emits_event() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let (_payer, _payee, id) = fund_and_setup(&e, &contract_id, 500, 100);
+
+        // Clear setup event
+        let _ = e.events().all();
+
+        e.as_contract(&contract_id, || {
+            e.ledger().set_sequence_number(e.ledger().sequence() + 101);
+            execute_recurring(&e, id);
+        });
+
+        let events = e.events().all();
+        assert_eq!(events.len(), 1);
+        // Topics: (recurring_executed, recurring_id), data: amount
+        assert_eq!(events.first().unwrap().0.len(), 2);
+    }
+
+    #[test]
+    fn test_cancel_recurring_emits_event() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let (payer, _payee, id) = fund_and_setup(&e, &contract_id, 500, 100);
+
+        let _ = e.events().all();
+
+        e.as_contract(&contract_id, || {
+            cancel_recurring(&e, payer.clone(), id);
+        });
+
+        let events = e.events().all();
+        assert_eq!(events.len(), 1);
+        // Topics: (recurring_cancelled, recurring_id, caller), data: ()
+        assert_eq!(events.first().unwrap().0.len(), 3);
     }
 }

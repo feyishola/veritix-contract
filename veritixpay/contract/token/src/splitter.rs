@@ -3,7 +3,7 @@ use crate::storage_types::{
     increment_counter, read_persistent_record, write_persistent_record, DataKey,
 };
 use crate::validation::require_positive_amount;
-use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol, Vec};
+use soroban_sdk::{contracttype, symbol_short, Address, Env, Vec};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]

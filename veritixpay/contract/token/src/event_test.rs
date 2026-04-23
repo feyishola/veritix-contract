@@ -1,5 +1,5 @@
 use super::*;
-use soroban_sdk::{testutils::Address as _, testutils::Events as _, Address, Env, String};
+use soroban_sdk::{testutils::Address as _, testutils::Events as _, Address, Env, String, Symbol};
 
 use crate::contract::VeritixTokenClient;
 
@@ -309,4 +309,68 @@ fn test_all_core_events_use_consistent_symbol_short_format() {
         // This will succeed if it's a Symbol
         let _: Symbol = first_topic.into_val(&env);
     }
+}
+
+// --- Issue #164: End-to-end ticket purchase flow tests ---
+
+#[test]
+fn test_ticket_purchase_happy_path() {
+    let (env, admin, buyer) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let organiser = Address::generate(&env);
+    let ticket_price = 500i128;
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &buyer, &ticket_price);
+
+    let initial_supply = client.total_supply();
+    let buyer_before = client.balance(&buyer);
+
+    // Step 2: Buyer creates escrow
+    let escrow_id = client.create_escrow(&buyer, &organiser, &ticket_price, &1000u32);
+
+    // Step 3: Buyer balance decreased, contract balance increased
+    assert_eq!(client.balance(&buyer), buyer_before - ticket_price);
+    assert_eq!(client.total_supply(), initial_supply); // supply unchanged
+
+    // Step 4: Organiser releases escrow
+    client.release_escrow(&organiser, &escrow_id);
+
+    // Step 5: Organiser received funds, contract balance is zero
+    assert_eq!(client.balance(&organiser), ticket_price);
+
+    // Step 6: Total supply unchanged throughout
+    assert_eq!(client.total_supply(), initial_supply);
+}
+
+#[test]
+fn test_ticket_purchase_dispute_path() {
+    let (env, admin, buyer) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let organiser = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let ticket_price = 500i128;
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &buyer, &ticket_price);
+
+    let initial_supply = client.total_supply();
+
+    // Step 1-2: Buyer creates escrow
+    let escrow_id = client.create_escrow(&buyer, &organiser, &ticket_price, &1000u32);
+    assert_eq!(client.balance(&buyer), 0);
+
+    // Step 2: Buyer opens dispute (event cancelled)
+    let dispute_id = client.open_dispute(&buyer, &escrow_id, &resolver);
+
+    // Step 3: Resolver resolves in favour of buyer (refund)
+    client.resolve_dispute(&resolver, &dispute_id, &false);
+
+    // Step 4: Buyer got funds back, contract balance is zero
+    assert_eq!(client.balance(&buyer), ticket_price);
+
+    // Total supply unchanged throughout
+    assert_eq!(client.total_supply(), initial_supply);
 }

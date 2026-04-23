@@ -1,6 +1,7 @@
-use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
+use soroban_sdk::{testutils::{Address as _, Events as _}, Address, Env, Vec};
 
 use crate::balance::read_balance;
+use crate::balance::read_total_supply;
 use crate::contract::VeritixToken;
 use crate::splitter::{cancel_split, create_split, distribute, get_split, SplitRecipient};
 
@@ -287,4 +288,106 @@ fn test_split_create_and_distribute_preserves_supply() {
         distribute(&e, sender.clone(), split_id);
         assert_invariant(&all);
     });
+}
+
+// --- Issue #165: cancel_split tests ---
+
+#[test]
+#[should_panic(expected = "unauthorized")]
+fn test_cancel_split_unauthorized_panics() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let hacker = Address::generate(&e);
+    let r1 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 1000);
+        let recipients = make_recipients(&e, &[(r1.clone(), 10000)]);
+        let split_id = create_split(&e, sender.clone(), recipients, 1000);
+        cancel_split(&e, hacker.clone(), split_id);
+    });
+}
+
+#[test]
+fn test_cancel_preserves_supply_invariant() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 1000);
+        crate::balance::increase_supply(&e, 1000);
+
+        let recipients = make_recipients(&e, &[(r1.clone(), 10000)]);
+        let split_id = create_split(&e, sender.clone(), recipients, 1000);
+
+        // After create: sender=0, contract=1000, total=1000
+        let contract_addr = e.current_contract_address();
+        assert_eq!(
+            read_balance(&e, sender.clone()) + read_balance(&e, contract_addr.clone()),
+            read_total_supply(&e)
+        );
+
+        cancel_split(&e, sender.clone(), split_id);
+
+        // After cancel: sender=1000, contract=0, total=1000
+        assert_eq!(
+            read_balance(&e, sender.clone()) + read_balance(&e, contract_addr.clone()),
+            read_total_supply(&e)
+        );
+    });
+}
+
+// --- Issue #162: Event emission tests ---
+
+#[test]
+fn test_distribute_emits_event() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 1000);
+        let recipients = make_recipients(&e, &[(r1.clone(), 10000)]);
+        let split_id = create_split(&e, sender.clone(), recipients, 1000);
+
+        // Clear create event (create_split emits no event currently — documented below)
+        let _ = e.events().all();
+
+        distribute(&e, sender.clone(), split_id);
+    });
+
+    let events = e.events().all();
+    assert_eq!(events.len(), 1);
+    // Topics: (split_distributed, split_id, sender), data: total_amount
+    assert_eq!(events.first().unwrap().0.len(), 3);
+}
+
+// NOTE: create_split currently emits no event — this is a known gap (see issue #162).
+// The distribute function emits split_distributed after funds are sent to recipients.
+
+#[test]
+fn test_cancel_split_emits_event() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 1000);
+        let recipients = make_recipients(&e, &[(r1.clone(), 10000)]);
+        let split_id = create_split(&e, sender.clone(), recipients, 1000);
+
+        let _ = e.events().all();
+
+        cancel_split(&e, sender.clone(), split_id);
+    });
+
+    let events = e.events().all();
+    assert_eq!(events.len(), 1);
+    // Topics: (split_cancelled, split_id, caller), data: total_amount
+    assert_eq!(events.first().unwrap().0.len(), 3);
 }
