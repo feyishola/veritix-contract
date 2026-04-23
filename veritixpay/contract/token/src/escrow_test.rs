@@ -273,6 +273,7 @@ fn test_escrow_count_getter_reflects_creations() {
             beneficiary.clone(),
             amount,
         );
+        let _ = VeritixToken::create_escrow(e.clone(), depositor_one.clone(), beneficiary.clone(), amount, 1000);
         assert_eq!(VeritixToken::escrow_count(e.clone()), 1);
     });
 
@@ -286,6 +287,7 @@ fn test_escrow_count_getter_reflects_creations() {
             beneficiary.clone(),
             amount,
         );
+        let _ = VeritixToken::create_escrow(e.clone(), depositor_two.clone(), beneficiary.clone(), amount, 1000);
         assert_eq!(VeritixToken::escrow_count(e.clone()), 2);
     });
 }
