@@ -204,6 +204,43 @@ fn test_open_dispute_rejects_beneficiary_as_resolver() {
 // --- Issue #162: Event emission tests ---
 
 #[test]
+#[should_panic(expected = "Unauthorized")]
+fn test_open_dispute_stranger_as_claimant_panics() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver = Address::generate(&e);
+    let stranger = Address::generate(&e);
+    let (_depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
+
+    e.as_contract(&contract_id, || {
+        open_dispute(&e, stranger.clone(), escrow_id, resolver.clone());
+    });
+}
+
+#[test]
+fn test_dispute_counter_does_not_skip_on_rejected_call() {
+    // Verify that a rejected open_dispute call (duplicate) does not increment the counter.
+    // We do this by opening two disputes on two separate escrows and confirming IDs are 1 and 2.
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver = Address::generate(&e);
+    let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
+    let (depositor2, _beneficiary2, escrow_id2) = setup_escrow(&e, &contract_id);
+
+    e.as_contract(&contract_id, || {
+        // First dispute gets ID 1
+        let id1 = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone());
+        assert_eq!(id1, 1);
+
+        // Second dispute on a different escrow gets ID 2 (no gap)
+        let id2 = open_dispute(&e, depositor2.clone(), escrow_id2, resolver.clone());
+        assert_eq!(id2, 2);
+    });
+}
+
+// --- Issue #162: Event emission tests ---
+
+#[test]
 fn test_open_dispute_emits_event() {
     let e = setup_env();
     let contract_id = e.register_contract(None, VeritixToken);

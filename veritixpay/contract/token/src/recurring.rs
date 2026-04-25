@@ -23,8 +23,12 @@ pub fn setup_recurring(
     amount: i128,
     interval: u32,
 ) -> u32 {
-    // 1. Validate amount
+    // 1. Validate amount and interval
     require_positive_amount(amount);
+
+    if interval == 0 {
+        panic!("interval must be positive");
+    }
 
     if payer == payee {
         panic!("InvalidRecurring: payer and payee cannot be the same address");
