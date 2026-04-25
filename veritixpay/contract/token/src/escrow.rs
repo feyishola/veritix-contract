@@ -1,9 +1,10 @@
+use crate::admin::check_admin;
 use crate::balance::{receive_balance, spend_balance};
 use crate::storage_types::{
     increment_counter, read_persistent_record, write_persistent_record, DataKey,
 };
 use crate::validation::{require_current_or_future_ledger, require_positive_amount};
-use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol};
+use soroban_sdk::{contracttype, symbol_short, Address, Env};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -168,4 +169,32 @@ pub fn try_get_escrow(e: &Env, escrow_id: u32) -> Result<EscrowRecord, &'static 
     } else {
         Err("escrow not found")
     }
+}
+
+/// Admin escape hatch: forcibly settles a stuck escrow by sending funds to
+/// `recipient`. Used when the normal beneficiary or depositor is frozen and
+/// the standard release/refund paths are deadlocked.
+///
+/// Only the contract admin may call this. The escrow must not already be settled.
+pub fn admin_settle_escrow(e: &Env, admin: Address, escrow_id: u32, recipient: Address) {
+    check_admin(e, &admin);
+    admin.require_auth();
+
+    let mut escrow = try_get_escrow(e, escrow_id)
+        .unwrap_or_else(|err| panic!("{}", err));
+
+    if escrow.released || escrow.refunded {
+        panic!("already settled");
+    }
+
+    escrow.released = true;
+    write_persistent_record(e, &DataKey::Escrow(escrow_id), &escrow);
+
+    spend_balance(e, e.current_contract_address(), escrow.amount);
+    receive_balance(e, recipient.clone(), escrow.amount);
+
+    e.events().publish(
+        (symbol_short!("adm_settle"), escrow_id, admin),
+        (recipient, escrow.amount),
+    );
 }

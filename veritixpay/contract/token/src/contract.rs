@@ -6,8 +6,9 @@ use crate::balance::{
 };
 use crate::dispute::{get_dispute as dispute_get, open_dispute, resolve_dispute, DisputeRecord};
 use crate::escrow::{
-    create_escrow as escrow_create, get_escrow as escrow_get, refund_escrow as escrow_refund,
-    release_escrow as escrow_release, EscrowRecord,
+    admin_settle_escrow as escrow_admin_settle, create_escrow as escrow_create,
+    get_escrow as escrow_get, refund_escrow as escrow_refund, release_escrow as escrow_release,
+    EscrowRecord,
 };
 use crate::freeze::{freeze_account, is_frozen as read_frozen_status, unfreeze_account};
 use crate::metadata::{
@@ -207,6 +208,12 @@ impl VeritixToken {
     /// Returns the current number of escrows created (monotonically increasing counter).
     pub fn escrow_count(e: Env) -> u32 {
         crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::EscrowCount)
+    }
+
+    /// Admin escape hatch: forcibly settles a stuck escrow when the normal
+    /// beneficiary or depositor is frozen. Sends funds to `recipient`.
+    pub fn admin_settle_escrow(e: Env, admin: Address, escrow_id: u32, recipient: Address) {
+        escrow_admin_settle(&e, admin, escrow_id, recipient)
     }
 
     // --- Dispute ---
