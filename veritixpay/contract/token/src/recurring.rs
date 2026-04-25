@@ -1,5 +1,5 @@
 use crate::balance::{receive_balance, spend_balance};
-use crate::storage_types::{increment_counter, DataKey};
+use crate::storage_types::{increment_counter, DataKey, PERSISTENT_BUMP_AMOUNT, PERSISTENT_LIFETIME_THRESHOLD};
 use crate::validation::require_positive_amount;
 use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol};
 
@@ -47,9 +47,11 @@ pub fn setup_recurring(
         last_charged_ledger: e.ledger().sequence(), // Set initial timestamp to now
         active: true,
     };
+    let key = DataKey::Recurring(count);
+    e.storage().persistent().set(&key, &record);
     e.storage()
         .persistent()
-        .set(&DataKey::Recurring(count), &record);
+        .extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
 
     // 4. Emit Observability Event
     e.events().publish(
@@ -63,11 +65,15 @@ pub fn setup_recurring(
 /// Executes a recurring payment if the interval has passed.
 /// Anyone can call this ("crank the contract"), but funds only move from payer to payee.
 pub fn execute_recurring(e: &Env, recurring_id: u32) {
+    let key = DataKey::Recurring(recurring_id);
     let mut record: RecurringRecord = e
         .storage()
         .persistent()
-        .get(&DataKey::Recurring(recurring_id))
+        .get(&key)
         .unwrap_or_else(|| panic!("recurring record not found"));
+    e.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
 
     if !record.active {
         panic!("recurring payment is not active");
@@ -90,9 +96,10 @@ pub fn execute_recurring(e: &Env, recurring_id: u32) {
     receive_balance(e, record.payee.clone(), record.amount);
 
     record.last_charged_ledger = current_ledger;
+    e.storage().persistent().set(&key, &record);
     e.storage()
         .persistent()
-        .set(&DataKey::Recurring(recurring_id), &record);
+        .extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
 
     e.events().publish(
         (symbol_short!("recurring_executed"), recurring_id),
@@ -104,10 +111,11 @@ pub fn execute_recurring(e: &Env, recurring_id: u32) {
 pub fn cancel_recurring(e: &Env, caller: Address, recurring_id: u32) {
     caller.require_auth();
 
+    let key = DataKey::Recurring(recurring_id);
     let mut record: RecurringRecord = e
         .storage()
         .persistent()
-        .get(&DataKey::Recurring(recurring_id))
+        .get(&key)
         .unwrap_or_else(|| panic!("recurring record not found"));
 
     if record.payer != caller {
@@ -115,9 +123,10 @@ pub fn cancel_recurring(e: &Env, caller: Address, recurring_id: u32) {
     }
 
     record.active = false;
+    e.storage().persistent().set(&key, &record);
     e.storage()
         .persistent()
-        .set(&DataKey::Recurring(recurring_id), &record);
+        .extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
 
     e.events().publish(
         (
@@ -130,8 +139,14 @@ pub fn cancel_recurring(e: &Env, caller: Address, recurring_id: u32) {
 }
 
 pub fn get_recurring(e: &Env, recurring_id: u32) -> RecurringRecord {
+    let key = DataKey::Recurring(recurring_id);
+    let record = e
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| panic!("recurring record not found"));
     e.storage()
         .persistent()
-        .get(&DataKey::Recurring(recurring_id))
-        .unwrap_or_else(|| panic!("recurring record not found"))
+        .extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+    record
 }

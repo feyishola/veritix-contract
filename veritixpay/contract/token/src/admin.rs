@@ -1,14 +1,16 @@
 use soroban_sdk::{symbol_short, Address, Env};
 
-use crate::storage_types::DataKey;
+use crate::storage_types::{bump_instance, DataKey};
 
 // --- Core admin storage helpers ---
 
 pub fn read_admin(e: &Env) -> Address {
+    bump_instance(e);
     e.storage().instance().get(&DataKey::Admin).unwrap()
 }
 
 pub fn write_admin(e: &Env, id: &Address) {
+    bump_instance(e);
     e.storage().instance().set(&DataKey::Admin, id);
 }
 

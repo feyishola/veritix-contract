@@ -206,6 +206,7 @@ impl VeritixToken {
 
     /// Returns the current number of escrows created (monotonically increasing counter).
     pub fn escrow_count(e: Env) -> u32 {
+        crate::storage_types::bump_instance(&e);
         crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::EscrowCount)
     }
 

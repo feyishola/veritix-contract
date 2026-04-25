@@ -1,6 +1,7 @@
 use crate::balance::{receive_balance, spend_balance};
 use crate::storage_types::{
     increment_counter, read_persistent_record, write_persistent_record, DataKey,
+    PERSISTENT_BUMP_AMOUNT, PERSISTENT_LIFETIME_THRESHOLD,
 };
 use crate::validation::require_positive_amount;
 use soroban_sdk::{contracttype, symbol_short, Address, Env, Vec};
@@ -92,6 +93,11 @@ pub fn distribute(e: &Env, caller: Address, split_id: u32) {
         .persistent()
         .get(&DataKey::Split(split_id))
         .expect("split record not found");
+    e.storage().persistent().extend_ttl(
+        &DataKey::Split(split_id),
+        PERSISTENT_LIFETIME_THRESHOLD,
+        PERSISTENT_BUMP_AMOUNT,
+    );
 
     // 1. Rules: Caller must be sender, cannot distribute twice
     if record.sender != caller {
@@ -116,14 +122,20 @@ pub fn distribute(e: &Env, caller: Address, split_id: u32) {
             // Last recipient gets everything left to avoid rounding dust
             remaining_amount
         } else {
-            (record.total_amount * recipient.share_bps as i128) / 10000
+            record
+                .total_amount
+                .checked_mul(recipient.share_bps as i128)
+                .expect("split amount overflow")
+                / 10000
         };
 
         // Transfer from contract to recipient
         spend_balance(e, e.current_contract_address(), amount_to_send);
         receive_balance(e, recipient.address.clone(), amount_to_send);
 
-        remaining_amount -= amount_to_send;
+        remaining_amount = remaining_amount
+            .checked_sub(amount_to_send)
+            .expect("split remaining underflow");
     }
 
     // 3. Mark distributed
@@ -149,6 +161,11 @@ pub fn cancel_split(e: &Env, caller: Address, split_id: u32) {
         .persistent()
         .get(&DataKey::Split(split_id))
         .expect("split record not found");
+    e.storage().persistent().extend_ttl(
+        &DataKey::Split(split_id),
+        PERSISTENT_LIFETIME_THRESHOLD,
+        PERSISTENT_BUMP_AMOUNT,
+    );
 
     if record.sender != caller {
         panic!("unauthorized");

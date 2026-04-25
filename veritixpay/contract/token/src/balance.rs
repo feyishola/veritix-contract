@@ -1,4 +1,4 @@
-use crate::storage_types::{DataKey, BALANCE_BUMP_AMOUNT, BALANCE_LIFETIME_THRESHOLD};
+use crate::storage_types::{bump_instance, DataKey, BALANCE_BUMP_AMOUNT, BALANCE_LIFETIME_THRESHOLD};
 use soroban_sdk::{Address, Env};
 
 /// Returns the balance for an address, or 0 if not set
@@ -14,15 +14,21 @@ pub fn read_balance(e: &Env, addr: Address) -> i128 {
     }
 }
 
-/// Adds amount to address balance
+/// Adds amount to address balance — panics on overflow
 pub fn receive_balance(e: &Env, addr: Address, amount: i128) {
     let key = DataKey::Balance(addr.clone());
     let current_balance = read_balance(e, addr); // TTL is extended here
-    let new_balance = current_balance + amount;
+    let new_balance = current_balance
+        .checked_add(amount)
+        .expect("balance overflow");
 
     e.storage().persistent().set(&key, &new_balance);
+    e.storage()
+        .persistent()
+        .extend_ttl(&key, BALANCE_LIFETIME_THRESHOLD, BALANCE_BUMP_AMOUNT);
 }
-/// Subtracts amount from address balance — panics if insufficient
+
+/// Subtracts amount from address balance — panics if insufficient or underflow
 pub fn spend_balance(e: &Env, addr: Address, amount: i128) {
     let key = DataKey::Balance(addr.clone());
     let current_balance = read_balance(e, addr);
@@ -34,7 +40,9 @@ pub fn spend_balance(e: &Env, addr: Address, amount: i128) {
         );
     }
 
-    let new_balance = current_balance - amount;
+    let new_balance = current_balance
+        .checked_sub(amount)
+        .expect("balance underflow");
 
     let storage = e.storage().persistent();
     storage.set(&key, &new_balance);
@@ -45,6 +53,7 @@ pub fn spend_balance(e: &Env, addr: Address, amount: i128) {
 // (Make sure to import DataKey if not already imported)
 
 pub fn read_total_supply(e: &Env) -> i128 {
+    bump_instance(e);
     e.storage()
         .instance()
         .get(&DataKey::TotalSupply)
@@ -54,6 +63,7 @@ pub fn read_total_supply(e: &Env) -> i128 {
 pub fn increase_supply(e: &Env, amount: i128) {
     let supply = read_total_supply(e);
     let new_supply = supply.checked_add(amount).expect("supply overflow");
+    bump_instance(e);
     e.storage()
         .instance()
         .set(&DataKey::TotalSupply, &new_supply);
@@ -65,6 +75,7 @@ pub fn decrease_supply(e: &Env, amount: i128) {
         panic!("supply cannot be negative");
     }
     let new_supply = supply.checked_sub(amount).expect("supply underflow");
+    bump_instance(e);
     e.storage()
         .instance()
         .set(&DataKey::TotalSupply, &new_supply);
