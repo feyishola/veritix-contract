@@ -1,6 +1,6 @@
 use soroban_sdk::{contracttype, Env, String};
 
-use crate::storage_types::DataKey;
+use crate::storage_types::{bump_instance, DataKey};
 use crate::validation::{require_decimal_within_max, require_nonempty_string};
 
 pub const MAX_DECIMALS: u32 = 18;
@@ -14,10 +14,12 @@ pub struct TokenMetadata {
 }
 
 pub fn read_metadata(e: &Env) -> TokenMetadata {
+    bump_instance(e);
     e.storage().instance().get(&DataKey::Metadata).unwrap()
 }
 
 pub fn write_metadata(e: &Env, metadata: TokenMetadata) {
+    bump_instance(e);
     e.storage().instance().set(&DataKey::Metadata, &metadata);
 }
 

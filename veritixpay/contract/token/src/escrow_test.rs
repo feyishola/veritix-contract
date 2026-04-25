@@ -268,12 +268,6 @@ fn test_escrow_count_getter_reflects_creations() {
     let depositor_one = Address::generate(&e);
     e.as_contract(&contract_id, || {
         crate::balance::receive_balance(&e, depositor_one.clone(), amount);
-        let _ = VeritixToken::create_escrow(
-            e.clone(),
-            depositor_one.clone(),
-            beneficiary.clone(),
-            amount,
-        );
         let _ = VeritixToken::create_escrow(e.clone(), depositor_one.clone(), beneficiary.clone(), amount, 1000);
         assert_eq!(VeritixToken::escrow_count(e.clone()), 1);
     });
@@ -282,12 +276,6 @@ fn test_escrow_count_getter_reflects_creations() {
     let depositor_two = Address::generate(&e);
     e.as_contract(&contract_id, || {
         crate::balance::receive_balance(&e, depositor_two.clone(), amount);
-        let _ = VeritixToken::create_escrow(
-            e.clone(),
-            depositor_two.clone(),
-            beneficiary.clone(),
-            amount,
-        );
         let _ = VeritixToken::create_escrow(e.clone(), depositor_two.clone(), beneficiary.clone(), amount, 1000);
         assert_eq!(VeritixToken::escrow_count(e.clone()), 2);
     });
@@ -577,6 +565,9 @@ fn test_refund_escrow_emits_event() {
     assert_eq!(events.first().unwrap().0.len(), 3);
 }
 
+#[test]
+#[should_panic(expected = "expiration ledger is in the past")]
+fn test_create_escrow_past_expiry_panics() {
 // --- Issue #87: Frozen-account deadlock prevention tests ---
 
 #[test]
@@ -586,6 +577,13 @@ fn test_release_blocked_when_beneficiary_frozen() {
     let contract_id = e.register_contract(None, VeritixToken);
     let depositor = Address::generate(&e);
     let beneficiary = Address::generate(&e);
+    let amount = 1_000i128;
+
+    e.as_contract(&contract_id, || {
+        // Advance ledger so expiry_ledger = 0 is in the past
+        e.ledger().set_sequence_number(10);
+        crate::balance::receive_balance(&e, depositor.clone(), amount);
+        create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 0);
     let admin = Address::generate(&e);
     let amount = 1_000i128;
 
@@ -607,17 +605,33 @@ fn test_release_blocked_when_beneficiary_frozen() {
 }
 
 #[test]
+fn test_expired_escrow_can_be_refunded_by_third_party() {
 fn test_admin_settle_escrow_when_beneficiary_frozen() {
     let e = setup_env();
     let contract_id = e.register_contract(None, VeritixToken);
     let depositor = Address::generate(&e);
     let beneficiary = Address::generate(&e);
+    let third_party = Address::generate(&e);
     let admin = Address::generate(&e);
     let alternate = Address::generate(&e);
     let amount = 1_000i128;
 
     let mut escrow_id = 0u32;
     e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor.clone(), amount);
+        // Create escrow expiring at ledger 5
+        escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 5);
+    });
+
+    e.as_contract(&contract_id, || {
+        // Advance past expiry
+        e.ledger().set_sequence_number(6);
+        let before = read_balance(&e, depositor.clone());
+        // Third party triggers refund after expiry
+        refund_escrow(&e, third_party.clone(), escrow_id);
+        let record = get_escrow(&e, escrow_id);
+        assert!(record.refunded);
+        assert_eq!(read_balance(&e, depositor.clone()), before + amount);
         // Bootstrap: give admin role and fund depositor
         crate::admin::write_admin(&e, &admin);
         crate::balance::receive_balance(&e, depositor.clone(), amount);
@@ -642,11 +656,25 @@ fn test_admin_settle_escrow_when_beneficiary_frozen() {
 }
 
 #[test]
+#[should_panic(expected = "not depositor")]
+fn test_non_expired_escrow_cannot_be_refunded_by_third_party() {
 fn test_admin_settle_escrow_when_depositor_frozen() {
     let e = setup_env();
     let contract_id = e.register_contract(None, VeritixToken);
     let depositor = Address::generate(&e);
     let beneficiary = Address::generate(&e);
+    let third_party = Address::generate(&e);
+    let amount = 1_000i128;
+
+    let mut escrow_id = 0u32;
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor.clone(), amount);
+        escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
+    });
+
+    e.as_contract(&contract_id, || {
+        // Ledger has not advanced past expiry
+        refund_escrow(&e, third_party.clone(), escrow_id);
     let admin = Address::generate(&e);
     let amount = 500i128;
 
