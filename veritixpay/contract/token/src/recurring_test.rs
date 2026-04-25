@@ -130,6 +130,48 @@ mod recurring_tests {
     }
 
     #[test]
+    #[should_panic(expected = "amount must be positive")]
+    fn test_recurring_zero_amount_panics() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let payer = Address::generate(&e);
+        let payee = Address::generate(&e);
+        e.as_contract(&contract_id, || {
+            setup_recurring(&e, payer.clone(), payee.clone(), 0, 100);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "interval must be positive")]
+    fn test_recurring_zero_interval_panics() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let payer = Address::generate(&e);
+        let payee = Address::generate(&e);
+        e.as_contract(&contract_id, || {
+            crate::balance::receive_balance(&e, payer.clone(), 500);
+            setup_recurring(&e, payer.clone(), payee.clone(), 500, 0);
+        });
+    }
+
+    #[test]
+    fn test_recurring_payee_auth_required() {
+        let e = Env::default();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let client = VeritixTokenClient::new(&e, &contract_id);
+        let payer = Address::generate(&e);
+        let payee = Address::generate(&e);
+
+        e.mock_all_auths();
+        client.setup_recurring(&payer, &payee, &500i128, &100u32);
+
+        // Payee must be among the authorized signers
+        let auths = e.auths();
+        let payee_authorized = auths.iter().any(|(addr, _)| addr == payee);
+        assert!(payee_authorized, "payee must authorize setup_recurring");
+    }
+
+    #[test]
     #[should_panic(expected = "InsufficientBalance")]
     fn test_execute_recurring_insufficient_balance_panics() {
         let e = setup_env();

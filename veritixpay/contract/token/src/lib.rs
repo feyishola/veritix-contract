@@ -25,6 +25,12 @@ mod test;
 mod event_test;
 
 #[cfg(test)]
+mod balance_test;
+
+#[cfg(test)]
+mod allowance_test;
+
+#[cfg(test)]
 mod escrow_test;
 
 #[cfg(test)]
