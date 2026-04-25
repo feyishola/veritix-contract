@@ -14,7 +14,7 @@ preflight:
 	@echo "✅ All prerequisites met!"
 
 test: build
-	cargo test
+	cargo test --locked
 
 build:
 	stellar contract build

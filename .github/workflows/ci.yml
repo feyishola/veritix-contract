@@ -59,6 +59,9 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --lib -- -D warnings
 
+      - name: Compile-only check (locked)
+        run: cargo check --locked
+
       - name: Build Contract
         run: make build
 
