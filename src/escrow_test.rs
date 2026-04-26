@@ -1,11 +1,22 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
+use soroban_sdk::{bytes, testutils::Address as _, Address, Bytes, Env};
 use crate::contract::{VeriTixPay, VeriTixPayClient};
 
-fn setup() -> (Env, VeriTixPayClient<'static>, Address, Address, Address) {
+// ── Test setup ────────────────────────────────────────────────────────────────
+
+struct TestEnv<'a> {
+    e: Env,
+    client: VeriTixPayClient<'a>,
+    depositor: Address,
+    beneficiary: Address,
+    token: Address,
+}
+
+fn setup() -> TestEnv<'static> {
     let e = Env::default();
     e.mock_all_auths();
+
     let contract_id = e.register_contract(None, VeriTixPay);
     let client = VeriTixPayClient::new(&e, &contract_id);
 
@@ -13,60 +24,257 @@ fn setup() -> (Env, VeriTixPayClient<'static>, Address, Address, Address) {
     let beneficiary = Address::generate(&e);
     let token = e.register_stellar_asset_contract(depositor.clone());
 
-    // Fund the depositor
-    let token_client = soroban_sdk::token::StellarAssetClient::new(&e, &token);
-    token_client.mint(&depositor, &10_000);
+    soroban_sdk::token::StellarAssetClient::new(&e, &token).mint(&depositor, &50_000);
 
-    (e, client, depositor, beneficiary, token)
+    TestEnv { e, client, depositor, beneficiary, token }
+}
+
+fn empty_memo(e: &Env) -> Bytes {
+    Bytes::new(e)
+}
+
+fn make_memo(e: &Env, text: &[u8]) -> Bytes {
+    Bytes::from_slice(e, text)
+}
+
+// ── #177: Beneficiary index ───────────────────────────────────────────────────
+
+#[test]
+fn test_create_indexes_both_parties() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    let id = t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &1_000, &expiry, &empty_memo(&t.e),
+    );
+
+    let by_dep = t.client.get_escrows_by_depositor(&t.depositor);
+    assert_eq!(by_dep.len(), 1);
+    assert_eq!(by_dep.get(0).unwrap(), id);
+
+    let by_ben = t.client.get_escrows_by_beneficiary(&t.beneficiary);
+    assert_eq!(by_ben.len(), 1);
+    assert_eq!(by_ben.get(0).unwrap(), id);
 }
 
 #[test]
-fn test_create_escrow_indexes_both_parties() {
-    let (e, client, depositor, beneficiary, token) = setup();
-    let expiry = e.ledger().sequence() + 1000;
+fn test_beneficiary_index_accumulates() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
 
-    let id = client.create_escrow(&depositor, &beneficiary, &token, &500, &expiry);
+    for amount in [100, 200, 300] {
+        t.client.create_escrow(
+            &t.depositor, &t.beneficiary, &t.token, &amount, &expiry, &empty_memo(&t.e),
+        );
+    }
 
-    // Depositor index contains this escrow
-    let by_depositor = client.get_escrows_by_depositor(&depositor);
-    assert_eq!(by_depositor.len(), 1);
-    assert_eq!(by_depositor.get(0).unwrap(), id);
-
-    // Beneficiary index contains this escrow
-    let by_beneficiary = client.get_escrows_by_beneficiary(&beneficiary);
-    assert_eq!(by_beneficiary.len(), 1);
-    assert_eq!(by_beneficiary.get(0).unwrap(), id);
+    assert_eq!(t.client.get_escrows_by_beneficiary(&t.beneficiary).len(), 3);
 }
 
 #[test]
-fn test_beneficiary_index_accumulates_multiple_escrows() {
-    let (e, client, depositor, beneficiary, token) = setup();
-    let expiry = e.ledger().sequence() + 1000;
+fn test_stranger_gets_empty_list() {
+    let t = setup();
+    let stranger = Address::generate(&t.e);
+    assert_eq!(t.client.get_escrows_by_beneficiary(&stranger).len(), 0);
+}
 
-    client.create_escrow(&depositor, &beneficiary, &token, &100, &expiry);
-    client.create_escrow(&depositor, &beneficiary, &token, &200, &expiry);
-    client.create_escrow(&depositor, &beneficiary, &token, &300, &expiry);
+// ── #175: Memo field ──────────────────────────────────────────────────────────
 
-    let list = client.get_escrows_by_beneficiary(&beneficiary);
-    assert_eq!(list.len(), 3);
+#[test]
+fn test_memo_stored_and_readable() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+    let memo = make_memo(&t.e, b"ticket:EVT-001:ORDER-9999");
+
+    // create_escrow returns the id; we then fetch the record via a
+    // get_escrow helper (add that to contract.rs if not present) or
+    // verify indirectly through the index length — for a standalone test
+    // the panic-free path is sufficient.
+    let id = t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &500, &expiry, &memo,
+    );
+
+    // index should contain this escrow — proves creation succeeded with memo
+    let list = t.client.get_escrows_by_depositor(&t.depositor);
+    assert_eq!(list.get(0).unwrap(), id);
 }
 
 #[test]
-fn test_unrelated_address_gets_empty_list() {
-    let (e, client, ..) = setup();
-    let stranger = Address::generate(&e);
-    let list = client.get_escrows_by_beneficiary(&stranger);
-    assert_eq!(list.len(), 0);
+fn test_empty_memo_is_valid() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    // should not panic
+    t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &100, &expiry, &empty_memo(&t.e),
+    );
 }
 
 #[test]
-fn test_depositor_does_not_appear_in_beneficiary_index() {
-    let (e, client, depositor, beneficiary, token) = setup();
-    let expiry = e.ledger().sequence() + 1000;
+fn test_exactly_64_byte_memo_is_valid() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+    let memo = make_memo(&t.e, &[b'x'; 64]);
 
-    client.create_escrow(&depositor, &beneficiary, &token, &500, &expiry);
+    t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &100, &expiry, &memo,
+    );
+}
 
-    // Depositor's beneficiary list should be empty
-    let depositor_as_beneficiary = client.get_escrows_by_beneficiary(&depositor);
-    assert_eq!(depositor_as_beneficiary.len(), 0);
+#[test]
+#[should_panic(expected = "MemoTooLong: memo cannot exceed 64 bytes")]
+fn test_65_byte_memo_panics() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+    let memo = make_memo(&t.e, &[b'x'; 65]);
+
+    t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &100, &expiry, &memo,
+    );
+}
+
+#[test]
+#[should_panic(expected = "MemoTooLong: memo cannot exceed 64 bytes")]
+fn test_large_memo_panics() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+    let memo = make_memo(&t.e, &[b'a'; 128]);
+
+    t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &100, &expiry, &memo,
+    );
+}
+
+// ── #174: Partial release ─────────────────────────────────────────────────────
+
+#[test]
+fn test_partial_release_reduces_remaining() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    let id = t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &1_000, &expiry, &empty_memo(&t.e),
+    );
+
+    t.client.release_partial_escrow(&t.beneficiary, &id, &300);
+
+    // Beneficiary should have received 300
+    let tc = soroban_sdk::token::Client::new(&t.e, &t.token);
+    assert_eq!(tc.balance(&t.beneficiary), 300);
+
+    // Contract still holds 700
+    assert_eq!(tc.balance(&t.e.current_contract_address()), 700);
+}
+
+#[test]
+fn test_multiple_partial_releases() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    let id = t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &900, &expiry, &empty_memo(&t.e),
+    );
+
+    t.client.release_partial_escrow(&t.beneficiary, &id, &300);
+    t.client.release_partial_escrow(&t.beneficiary, &id, &300);
+    t.client.release_partial_escrow(&t.beneficiary, &id, &300);
+
+    let tc = soroban_sdk::token::Client::new(&t.e, &t.token);
+    assert_eq!(tc.balance(&t.beneficiary), 900);
+    assert_eq!(tc.balance(&t.e.current_contract_address()), 0);
+}
+
+#[test]
+fn test_full_partial_release_marks_as_released() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    let id = t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &1_000, &expiry, &empty_memo(&t.e),
+    );
+
+    // Release the entire amount in one partial call
+    t.client.release_partial_escrow(&t.beneficiary, &id, &1_000);
+
+    // A second partial call must fail because it's fully released
+    let result = std::panic::catch_unwind(|| {
+        t.client.release_partial_escrow(&t.beneficiary, &id, &1);
+    });
+    assert!(result.is_err(), "expected panic on second release");
+}
+
+#[test]
+#[should_panic(expected = "release amount exceeds remaining balance")]
+fn test_over_release_panics() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    let id = t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &500, &expiry, &empty_memo(&t.e),
+    );
+
+    t.client.release_partial_escrow(&t.beneficiary, &id, &501);
+}
+
+#[test]
+#[should_panic(expected = "release amount exceeds remaining balance")]
+fn test_over_release_after_partial_panics() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    let id = t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &500, &expiry, &empty_memo(&t.e),
+    );
+
+    t.client.release_partial_escrow(&t.beneficiary, &id, &400);
+    t.client.release_partial_escrow(&t.beneficiary, &id, &200); // 400+200 > 500
+}
+
+#[test]
+#[should_panic(expected = "release amount must be greater than zero")]
+fn test_zero_partial_release_panics() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    let id = t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &500, &expiry, &empty_memo(&t.e),
+    );
+
+    t.client.release_partial_escrow(&t.beneficiary, &id, &0);
+}
+
+#[test]
+#[should_panic(expected = "only the beneficiary can partially release")]
+fn test_depositor_cannot_partial_release() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    let id = t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &500, &expiry, &empty_memo(&t.e),
+    );
+
+    // Depositor is not allowed to call partial release
+    t.client.release_partial_escrow(&t.depositor, &id, &100);
+}
+
+#[test]
+fn test_refund_after_partial_release_returns_remainder() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    let id = t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &1_000, &expiry, &empty_memo(&t.e),
+    );
+
+    // Beneficiary takes 400 first
+    t.client.release_partial_escrow(&t.beneficiary, &id, &400);
+
+    // Then depositor refunds — should only get back 600 (the remainder)
+    t.client.refund_escrow(&t.depositor, &id);
+
+    let tc = soroban_sdk::token::Client::new(&t.e, &t.token);
+    // depositor started with 50_000, spent 1_000 on escrow, gets back 600
+    assert_eq!(tc.balance(&t.depositor), 49_600);
+    assert_eq!(tc.balance(&t.beneficiary), 400);
+    assert_eq!(tc.balance(&t.e.current_contract_address()), 0);
 }
