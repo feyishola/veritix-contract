@@ -1,4 +1,4 @@
-use soroban_sdk::{contract, contractimpl, Address, Env, Vec};
+use soroban_sdk::{contracttype, token, Address, Bytes, Env, Vec};
 use crate::storage_types::DataKey;
 
 #[contracttype]
@@ -7,14 +7,17 @@ pub struct EscrowRecord {
     pub id: u32,
     pub depositor: Address,
     pub beneficiary: Address,
-    pub amount: i128,
     pub token: Address,
+    pub amount: i128,           // original locked amount — never changes
+    pub released_amount: i128,  // #174: how much has been released so far
     pub expiry_ledger: u32,
-    pub released: bool,
+    pub released: bool,         // true only when fully released
     pub refunded: bool,
+    pub memo: Bytes,            // #175: arbitrary tag — max 64 bytes
 }
 
-// Helper: read a Vec<u32> list from storage, defaulting to empty
+// ── Storage helpers ──────────────────────────────────────────────────────────
+
 fn read_escrow_ids(e: &Env, key: DataKey) -> Vec<u32> {
     e.storage()
         .persistent()
@@ -22,22 +25,50 @@ fn read_escrow_ids(e: &Env, key: DataKey) -> Vec<u32> {
         .unwrap_or(Vec::new(e))
 }
 
-// Helper: append an escrow id to a stored list
 fn append_escrow_id(e: &Env, key: DataKey, id: u32) {
     let mut list = read_escrow_ids(e, key.clone());
     list.push_back(id);
     e.storage().persistent().set(&key, &list);
 }
 
+fn load_record(e: &Env, escrow_id: u32) -> EscrowRecord {
+    e.storage()
+        .persistent()
+        .get(&DataKey::Escrow(escrow_id))
+        .expect("escrow not found")
+}
+
+fn save_record(e: &Env, record: &EscrowRecord) {
+    e.storage()
+        .persistent()
+        .set(&DataKey::Escrow(record.id), record);
+}
+
+fn get_admin(e: &Env) -> Address {
+    e.storage()
+        .persistent()
+        .get(&DataKey::Admin)
+        .expect("admin not set")
+}
+
+// ── Public functions ─────────────────────────────────────────────────────────
+
+/// Create an escrow. #175 adds `memo: Bytes` — max 64 bytes.
 pub fn create_escrow(
     e: Env,
     depositor: Address,
     beneficiary: Address,
-    token: Address,
+    token_addr: Address,
     amount: i128,
     expiry_ledger: u32,
+    memo: Bytes,
 ) -> u32 {
     depositor.require_auth();
+
+    // #175: enforce memo length limit with the exact panic string required
+    if memo.len() > 64 {
+        panic!("MemoTooLong: memo cannot exceed 64 bytes");
+    }
 
     assert!(amount > 0, "amount must be greater than zero");
     assert!(
@@ -45,38 +76,33 @@ pub fn create_escrow(
         "expiry_ledger must be in the future"
     );
 
-    // Pull the current counter, default to 0
     let id: u32 = e
         .storage()
         .persistent()
         .get(&DataKey::EscrowCount)
         .unwrap_or(0);
 
+    // Pull tokens from depositor into the contract
+    let token_client = token::Client::new(&e, &token_addr);
+    token_client.transfer(&depositor, &e.current_contract_address(), &amount);
+
     let record = EscrowRecord {
         id,
         depositor: depositor.clone(),
         beneficiary: beneficiary.clone(),
-        token: token.clone(),
+        token: token_addr,
         amount,
+        released_amount: 0, // #174: starts at zero
         expiry_ledger,
         released: false,
         refunded: false,
+        memo,               // #175
     };
 
-    // Transfer tokens from depositor into the contract
-    let token_client = soroban_sdk::token::Client::new(&e, &token);
-    token_client.transfer(&depositor, &e.current_contract_address(), &amount);
-
-    // Store the record
-    e.storage().persistent().set(&DataKey::Escrow(id), &record);
-
-    // Update depositor index
+    save_record(&e, &record);
     append_escrow_id(&e, DataKey::DepositorEscrows(depositor), id);
-
-    // Update beneficiary index — the new part for #177
     append_escrow_id(&e, DataKey::BeneficiaryEscrows(beneficiary), id);
 
-    // Bump the counter
     e.storage()
         .persistent()
         .set(&DataKey::EscrowCount, &(id + 1));
@@ -84,14 +110,11 @@ pub fn create_escrow(
     id
 }
 
+/// Full release — sends everything remaining to the beneficiary.
 pub fn release_escrow(e: Env, caller: Address, escrow_id: u32) {
     caller.require_auth();
 
-    let mut record: EscrowRecord = e
-        .storage()
-        .persistent()
-        .get(&DataKey::Escrow(escrow_id))
-        .expect("escrow not found");
+    let mut record = load_record(&e, escrow_id);
 
     assert!(!record.released, "already released");
     assert!(!record.refunded, "already refunded");
@@ -104,27 +127,61 @@ pub fn release_escrow(e: Env, caller: Address, escrow_id: u32) {
         "escrow has expired"
     );
 
-    record.released = true;
-    e.storage()
-        .persistent()
-        .set(&DataKey::Escrow(escrow_id), &record);
+    let remaining = record.amount - record.released_amount;
+    assert!(remaining > 0, "nothing left to release");
 
-    let token_client = soroban_sdk::token::Client::new(&e, &record.token);
-    token_client.transfer(
-        &e.current_contract_address(),
-        &record.beneficiary,
-        &record.amount,
-    );
+    record.released_amount = record.amount;
+    record.released = true;
+    save_record(&e, &record);
+
+    let token_client = token::Client::new(&e, &record.token);
+    token_client.transfer(&e.current_contract_address(), &record.beneficiary, &remaining);
 }
 
+/// #174: Partial release — caller must be the beneficiary.
+/// Releases `amount` of still-locked funds; marks fully released only when
+/// nothing remains.
+pub fn release_partial_escrow(e: Env, caller: Address, escrow_id: u32, amount: i128) {
+    caller.require_auth();
+
+    let mut record = load_record(&e, escrow_id);
+
+    assert!(!record.refunded, "already refunded");
+    assert!(!record.released, "already fully released");
+    assert!(
+        caller == record.beneficiary,
+        "only the beneficiary can partially release"
+    );
+    assert!(
+        e.ledger().sequence() <= record.expiry_ledger,
+        "escrow has expired"
+    );
+    assert!(amount > 0, "release amount must be greater than zero");
+
+    let remaining = record.amount - record.released_amount;
+    assert!(
+        amount <= remaining,
+        "release amount exceeds remaining balance"
+    );
+
+    record.released_amount += amount;
+
+    // Mark fully released if nothing is left
+    if record.released_amount == record.amount {
+        record.released = true;
+    }
+
+    save_record(&e, &record);
+
+    let token_client = token::Client::new(&e, &record.token);
+    token_client.transfer(&e.current_contract_address(), &record.beneficiary, &amount);
+}
+
+/// Refund — returns original locked amount minus what was already partially released.
 pub fn refund_escrow(e: Env, caller: Address, escrow_id: u32) {
     caller.require_auth();
 
-    let mut record: EscrowRecord = e
-        .storage()
-        .persistent()
-        .get(&DataKey::Escrow(escrow_id))
-        .expect("escrow not found");
+    let mut record = load_record(&e, escrow_id);
 
     assert!(!record.released, "already released");
     assert!(!record.refunded, "already refunded");
@@ -133,31 +190,26 @@ pub fn refund_escrow(e: Env, caller: Address, escrow_id: u32) {
         "not authorised to refund"
     );
 
-    record.refunded = true;
-    e.storage()
-        .persistent()
-        .set(&DataKey::Escrow(escrow_id), &record);
+    let refundable = record.amount - record.released_amount;
+    assert!(refundable > 0, "nothing left to refund");
 
-    let token_client = soroban_sdk::token::Client::new(&e, &record.token);
+    record.refunded = true;
+    save_record(&e, &record);
+
+    let token_client = token::Client::new(&e, &record.token);
     token_client.transfer(
         &e.current_contract_address(),
         &record.depositor,
-        &record.amount,
+        &refundable,
     );
 }
+
+// ── Query helpers ─────────────────────────────────────────────────────────────
 
 pub fn get_escrows_by_depositor(e: Env, depositor: Address) -> Vec<u32> {
     read_escrow_ids(&e, DataKey::DepositorEscrows(depositor))
 }
 
-// NEW for #177 — get all escrow IDs where the given address is the beneficiary
 pub fn get_escrows_by_beneficiary(e: Env, beneficiary: Address) -> Vec<u32> {
     read_escrow_ids(&e, DataKey::BeneficiaryEscrows(beneficiary))
-}
-
-fn get_admin(e: &Env) -> Address {
-    e.storage()
-        .persistent()
-        .get(&DataKey::Admin)
-        .expect("admin not set")
 }
