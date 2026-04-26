@@ -1,8 +1,8 @@
-use soroban_sdk::{contract, contractimpl, Address, Env, Vec};
-use crate::escrow;
-use crate::multi_escrow;
+use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, Vec};
+use crate::{escrow, multi_escrow};
 
 pub trait VeriTixPayTrait {
+    // ── Escrow ────────────────────────────────────────────────────────────────
     fn create_escrow(
         e: Env,
         depositor: Address,
@@ -10,14 +10,16 @@ pub trait VeriTixPayTrait {
         token: Address,
         amount: i128,
         expiry_ledger: u32,
+        memo: Bytes,            // #175
     ) -> u32;
 
     fn release_escrow(e: Env, caller: Address, escrow_id: u32);
+    fn release_partial_escrow(e: Env, caller: Address, escrow_id: u32, amount: i128); // #174
     fn refund_escrow(e: Env, caller: Address, escrow_id: u32);
     fn get_escrows_by_depositor(e: Env, depositor: Address) -> Vec<u32>;
-    fn get_escrows_by_beneficiary(e: Env, beneficiary: Address) -> Vec<u32>; // NEW
+    fn get_escrows_by_beneficiary(e: Env, beneficiary: Address) -> Vec<u32>;
 
-    // multi-escrow — see #176
+    // ── Multi-escrow ──────────────────────────────────────────────────────────
     fn create_multi_escrow(
         e: Env,
         depositor: Address,
@@ -41,12 +43,17 @@ impl VeriTixPayTrait for VeriTixPay {
         token: Address,
         amount: i128,
         expiry_ledger: u32,
+        memo: Bytes,
     ) -> u32 {
-        escrow::create_escrow(e, depositor, beneficiary, token, amount, expiry_ledger)
+        escrow::create_escrow(e, depositor, beneficiary, token, amount, expiry_ledger, memo)
     }
 
     fn release_escrow(e: Env, caller: Address, escrow_id: u32) {
         escrow::release_escrow(e, caller, escrow_id)
+    }
+
+    fn release_partial_escrow(e: Env, caller: Address, escrow_id: u32, amount: i128) {
+        escrow::release_partial_escrow(e, caller, escrow_id, amount)
     }
 
     fn refund_escrow(e: Env, caller: Address, escrow_id: u32) {
