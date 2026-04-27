@@ -236,6 +236,12 @@ impl VeritixToken {
         dispute_get(&e, dispute_id)
     }
 
+    /// Returns the current number of disputes created (monotonically increasing counter).
+    pub fn dispute_count(e: Env) -> u32 {
+        crate::storage_types::bump_instance(&e);
+        crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::DisputeCount)
+    }
+
     // --- Splitter ---
 
     pub fn create_split(
@@ -257,6 +263,12 @@ impl VeritixToken {
 
     pub fn get_split(e: Env, split_id: u32) -> SplitRecord {
         split_get(&e, split_id)
+    }
+
+    /// Returns the current number of splits created (monotonically increasing counter).
+    pub fn split_count(e: Env) -> u32 {
+        crate::storage_types::bump_instance(&e);
+        crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::SplitCount)
     }
 
     // --- Recurring Payments ---
@@ -281,5 +293,11 @@ impl VeritixToken {
 
     pub fn get_recurring(e: Env, recurring_id: u32) -> RecurringRecord {
         get_recurring(&e, recurring_id)
+    }
+
+    /// Returns the current number of recurring payments created (monotonically increasing counter).
+    pub fn recurring_count(e: Env) -> u32 {
+        crate::storage_types::bump_instance(&e);
+        crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::RecurringCount)
     }
 }

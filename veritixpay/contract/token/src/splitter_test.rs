@@ -4,6 +4,7 @@ use crate::balance::read_balance;
 use crate::balance::read_total_supply;
 use crate::contract::VeritixToken;
 use crate::splitter::{cancel_split, create_split, distribute, get_split, SplitRecipient};
+use crate::storage_types::{read_counter, DataKey};
 
 fn setup_env() -> Env {
     let e = Env::default();
@@ -390,4 +391,50 @@ fn test_cancel_split_emits_event() {
     assert_eq!(events.len(), 1);
     // Topics: (split_cancelled, split_id, caller), data: total_amount
     assert_eq!(events.first().unwrap().0.len(), 3);
+}
+
+// --- Split counter tests ---
+
+#[test]
+fn test_split_count_starts_at_zero() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+
+    e.as_contract(&contract_id, || {
+        let count = read_counter(&e, &DataKey::SplitCount);
+        assert_eq!(count, 0);
+    });
+}
+
+#[test]
+fn test_split_count_increments_on_create() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 3000);
+
+        // Before any splits
+        assert_eq!(read_counter(&e, &DataKey::SplitCount), 0);
+
+        // Create first split
+        let recipients = make_recipients(&e, &[(r1.clone(), 10000)]);
+        let split_id = create_split(&e, sender.clone(), recipients, 1000);
+        assert_eq!(split_id, 1);
+        assert_eq!(read_counter(&e, &DataKey::SplitCount), 1);
+
+        // Create second split
+        let recipients = make_recipients(&e, &[(r1.clone(), 10000)]);
+        let split_id = create_split(&e, sender.clone(), recipients, 1000);
+        assert_eq!(split_id, 2);
+        assert_eq!(read_counter(&e, &DataKey::SplitCount), 2);
+
+        // Create third split
+        let recipients = make_recipients(&e, &[(r1.clone(), 10000)]);
+        let split_id = create_split(&e, sender.clone(), recipients, 1000);
+        assert_eq!(split_id, 3);
+        assert_eq!(read_counter(&e, &DataKey::SplitCount), 3);
+    });
 }
