@@ -4,6 +4,7 @@ use crate::balance::read_balance;
 use crate::contract::VeritixToken;
 use crate::dispute::{get_dispute, open_dispute, resolve_dispute, DisputeStatus};
 use crate::escrow::{create_escrow, get_escrow};
+use crate::storage_types::{read_counter, DataKey};
 
 fn setup_env() -> Env {
     let e = Env::default();
@@ -282,4 +283,49 @@ fn test_resolve_dispute_emits_event() {
     // Last event should be dispute_resolved with 3 topics
     let last = events.last().unwrap();
     assert_eq!(last.0.len(), 3);
+}
+
+// --- Dispute counter tests ---
+
+#[test]
+fn test_dispute_count_starts_at_zero() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+
+    e.as_contract(&contract_id, || {
+        let count = read_counter(&e, &DataKey::DisputeCount);
+        assert_eq!(count, 0);
+    });
+}
+
+#[test]
+fn test_dispute_count_increments_on_open() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver = Address::generate(&e);
+
+    // Create three escrows for three disputes
+    let (depositor1, _beneficiary1, escrow_id1) = setup_escrow(&e, &contract_id);
+    let (depositor2, _beneficiary2, escrow_id2) = setup_escrow(&e, &contract_id);
+    let (depositor3, _beneficiary3, escrow_id3) = setup_escrow(&e, &contract_id);
+
+    e.as_contract(&contract_id, || {
+        // Before any disputes
+        assert_eq!(read_counter(&e, &DataKey::DisputeCount), 0);
+
+        // Open first dispute
+        let dispute_id = open_dispute(&e, depositor1.clone(), escrow_id1, resolver.clone());
+        assert_eq!(dispute_id, 1);
+        assert_eq!(read_counter(&e, &DataKey::DisputeCount), 1);
+
+        // Open second dispute
+        let dispute_id = open_dispute(&e, depositor2.clone(), escrow_id2, resolver.clone());
+        assert_eq!(dispute_id, 2);
+        assert_eq!(read_counter(&e, &DataKey::DisputeCount), 2);
+
+        // Open third dispute
+        let dispute_id = open_dispute(&e, depositor3.clone(), escrow_id3, resolver.clone());
+        assert_eq!(dispute_id, 3);
+        assert_eq!(read_counter(&e, &DataKey::DisputeCount), 3);
+    });
 }

@@ -8,6 +8,7 @@ mod recurring_tests {
     use crate::balance::read_balance;
     use crate::contract::{VeritixToken, VeritixTokenClient};
     use crate::recurring::{cancel_recurring, execute_recurring, get_recurring, setup_recurring};
+    use crate::storage_types::{read_counter, DataKey};
 
     fn setup_env() -> Env {
         let e = Env::default();
@@ -333,5 +334,54 @@ mod recurring_tests {
         assert_eq!(events.len(), 1);
         // Topics: (recurring_cancelled, recurring_id, caller), data: ()
         assert_eq!(events.first().unwrap().0.len(), 3);
+    }
+
+    // --- Recurring counter tests ---
+
+    #[test]
+    fn test_recurring_count_starts_at_zero() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+
+        e.as_contract(&contract_id, || {
+            let count = read_counter(&e, &DataKey::RecurringCount);
+            assert_eq!(count, 0);
+        });
+    }
+
+    #[test]
+    fn test_recurring_count_increments_on_setup() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let payer1 = Address::generate(&e);
+        let payee1 = Address::generate(&e);
+        let payer2 = Address::generate(&e);
+        let payee2 = Address::generate(&e);
+        let payer3 = Address::generate(&e);
+        let payee3 = Address::generate(&e);
+
+        e.as_contract(&contract_id, || {
+            crate::balance::receive_balance(&e, payer1.clone(), 1000);
+            crate::balance::receive_balance(&e, payer2.clone(), 1000);
+            crate::balance::receive_balance(&e, payer3.clone(), 1000);
+
+            // Before any recurring payments
+            assert_eq!(read_counter(&e, &DataKey::RecurringCount), 0);
+
+            // Setup first recurring
+            let id = setup_recurring(&e, payer1.clone(), payee1.clone(), 500, 100);
+            assert_eq!(id, 1);
+            assert_eq!(read_counter(&e, &DataKey::RecurringCount), 1);
+
+            // Setup second recurring
+            let id = setup_recurring(&e, payer2.clone(), payee2.clone(), 500, 100);
+            assert_eq!(id, 2);
+            assert_eq!(read_counter(&e, &DataKey::RecurringCount), 2);
+
+            // Setup third recurring
+            let id = setup_recurring(&e, payer3.clone(), payee3.clone(), 500, 100);
+            assert_eq!(id, 3);
+            assert_eq!(read_counter(&e, &DataKey::RecurringCount), 3);
+        });
     }
 }
