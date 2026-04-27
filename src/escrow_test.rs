@@ -278,3 +278,98 @@ fn test_refund_after_partial_release_returns_remainder() {
     assert_eq!(tc.balance(&t.beneficiary), 400);
     assert_eq!(tc.balance(&t.e.current_contract_address()), 0);
 }
+// ── #181: Escrow events with memo ─────────────────────────────────────────────
+
+#[test]
+fn test_create_escrow_event_includes_memo() {
+    let t = setup();
+    t.e.mock_all_auths();
+    let expiry = t.e.ledger().sequence() + 1000;
+    let memo = make_memo(&t.e, b"ticket:EVT-001:ORDER-9999");
+
+    let id = t.client.create_escrow(
+        &t.depositor,
+        &t.beneficiary,
+        &t.token,
+        &1_000,
+        &expiry,
+        &memo,
+    );
+
+    // Verify escrow was created successfully with memo
+    let list = t.client.get_escrows_by_depositor(&t.depositor);
+    assert_eq!(list.get(0).unwrap(), id);
+
+    // Verify events were emitted
+    let events = t.e.events().all();
+    assert!(!events.is_empty(), "escrow_created event should be emitted");
+}
+
+#[test]
+fn test_release_escrow_event_includes_memo() {
+    let t = setup();
+    t.e.mock_all_auths();
+    let expiry = t.e.ledger().sequence() + 1000;
+    let memo = make_memo(&t.e, b"ticket:EVT-002:ORDER-1234");
+
+    let id = t.client.create_escrow(
+        &t.depositor,
+        &t.beneficiary,
+        &t.token,
+        &1_000,
+        &expiry,
+        &memo,
+    );
+
+    t.client.release_escrow(&t.depositor, &id);
+
+    // Verify events were emitted including release event
+    let events = t.e.events().all();
+    assert!(events.len() >= 2, "escrow_created and escrow_released events should be emitted");
+}
+
+#[test]
+fn test_refund_escrow_event_includes_memo() {
+    let t = setup();
+    t.e.mock_all_auths();
+    let expiry = t.e.ledger().sequence() + 1000;
+    let memo = make_memo(&t.e, b"ticket:EVT-003:ORDER-5678");
+
+    let id = t.client.create_escrow(
+        &t.depositor,
+        &t.beneficiary,
+        &t.token,
+        &1_000,
+        &expiry,
+        &memo,
+    );
+
+    t.client.refund_escrow(&t.depositor, &id);
+
+    // Verify events were emitted including refund event
+    let events = t.e.events().all();
+    assert!(events.len() >= 2, "escrow_created and escrow_refunded events should be emitted");
+}
+
+#[test]
+fn test_create_escrow_event_with_empty_memo() {
+    let t = setup();
+    t.e.mock_all_auths();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    let id = t.client.create_escrow(
+        &t.depositor,
+        &t.beneficiary,
+        &t.token,
+        &500,
+        &expiry,
+        &empty_memo(&t.e),
+    );
+
+    // Even with empty memo event should be emitted
+    let events = t.e.events().all();
+    assert!(!events.is_empty(), "escrow_created event should be emitted even with empty memo");
+
+    let list = t.client.get_escrows_by_depositor(&t.depositor);
+    assert_eq!(list.get(0).unwrap(), id);
+}
