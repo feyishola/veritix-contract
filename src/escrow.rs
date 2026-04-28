@@ -106,6 +106,19 @@ pub fn create_escrow(
     e.storage()
         .persistent()
         .set(&DataKey::EscrowCount, &(id + 1));
+e.storage()
+        .persistent()
+        .set(&DataKey::EscrowCount, &(id + 1));
+
+    // #181: emit escrow_created event with memo for indexers
+    e.events().publish(
+        (
+            soroban_sdk::symbol_short!("escrow_cre"),
+            record.depositor.clone(),
+            record.beneficiary.clone(),
+        ),
+        (record.amount, record.memo.clone()),
+    );
 
     id
 }
@@ -136,6 +149,16 @@ pub fn release_escrow(e: Env, caller: Address, escrow_id: u32) {
 
     let token_client = token::Client::new(&e, &record.token);
     token_client.transfer(&e.current_contract_address(), &record.beneficiary, &remaining);
+
+    // #181: emit escrow_released event with memo for indexers
+    e.events().publish(
+        (
+            soroban_sdk::symbol_short!("escrow_rel"),
+            record.depositor.clone(),
+            record.beneficiary.clone(),
+        ),
+        (remaining, record.memo.clone()),
+    );
 }
 
 /// #174: Partial release — caller must be the beneficiary.
@@ -196,11 +219,21 @@ pub fn refund_escrow(e: Env, caller: Address, escrow_id: u32) {
     record.refunded = true;
     save_record(&e, &record);
 
-    let token_client = token::Client::new(&e, &record.token);
+   let token_client = token::Client::new(&e, &record.token);
     token_client.transfer(
         &e.current_contract_address(),
         &record.depositor,
         &refundable,
+    );
+
+    // #181: emit escrow_refunded event with memo for indexers
+    e.events().publish(
+        (
+            soroban_sdk::symbol_short!("escrow_ref"),
+            record.depositor.clone(),
+            record.beneficiary.clone(),
+        ),
+        (refundable, record.memo.clone()),
     );
 }
 
