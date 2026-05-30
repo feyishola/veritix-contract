@@ -16,6 +16,7 @@ pub mod splitter;
 pub mod storage_types;
 pub mod validation;
 
+pub mod batch;
 mod contract;
 
 #[cfg(test)]
@@ -38,6 +39,9 @@ mod admin_test;
 
 #[cfg(test)]
 mod splitter_test;
+
+#[cfg(test)]
+mod batch_test;
 
 #[cfg(test)]
 mod dispute_test;
