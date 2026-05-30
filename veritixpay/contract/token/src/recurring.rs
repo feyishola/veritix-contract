@@ -3,7 +3,7 @@ use crate::storage_types::{
     increment_counter, DataKey, PERSISTENT_BUMP_AMOUNT, PERSISTENT_LIFETIME_THRESHOLD,
 };
 use crate::validation::require_positive_amount;
-use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol};
+use soroban_sdk::{contracttype, symbol_short, vec, Address, Env, Symbol, Vec};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -16,6 +16,14 @@ pub struct RecurringRecord {
     pub last_charged_ledger: u32,
     pub active: bool,
     pub paused: bool,
+}
+
+fn append_payer_index(e: &Env, payer: &Address, id: u32) {
+    let key = DataKey::PayerRecurrings(payer.clone());
+    let mut ids: Vec<u32> = e.storage().persistent().get(&key).unwrap_or_else(|| vec![e]);
+    ids.push_back(id);
+    e.storage().persistent().set(&key, &ids);
+    e.storage().persistent().extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
 }
 
 pub fn setup_recurring(e: &Env, payer: Address, payee: Address, amount: i128, interval: u32) -> u32 {
@@ -42,6 +50,9 @@ pub fn setup_recurring(e: &Env, payer: Address, payee: Address, amount: i128, in
     let key = DataKey::Recurring(count);
     e.storage().persistent().set(&key, &record);
     e.storage().persistent().extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+    append_payer_index(e, &payer, count);
+    e.events().publish((symbol_short!("recur_setup"), payer.clone()), (payee, amount));
+    count
     e.events().publish((symbol_short!("recurring_setup"), payer.clone()), (payee, amount));
     count
 }
@@ -116,4 +127,9 @@ pub fn get_recurring(e: &Env, recurring_id: u32) -> RecurringRecord {
     let record = e.storage().persistent().get(&key).unwrap_or_else(|| panic!("recurring record not found"));
     e.storage().persistent().extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
     record
+}
+
+pub fn get_recurring_by_payer(e: &Env, payer: Address) -> Vec<u32> {
+    let key = DataKey::PayerRecurrings(payer);
+    e.storage().persistent().get(&key).unwrap_or_else(|| vec![e])
 }
