@@ -1,3 +1,8 @@
+//! Balance and supply module.
+//! Owns per-address token balances and total supply updates.
+//! `receive_balance` intentionally does not check freeze status because admin/system flows
+//! (mint, escrow release, split distributions) must be able to credit frozen accounts.
+
 use crate::storage_types::{bump_instance, DataKey, BALANCE_BUMP_AMOUNT, BALANCE_LIFETIME_THRESHOLD};
 use soroban_sdk::{Address, Env};
 

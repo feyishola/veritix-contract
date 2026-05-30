@@ -1,3 +1,7 @@
+//! Recurring payment module.
+//! Supports schedule setup plus permissionless "crank" execution when intervals elapse.
+//! Anyone may execute to keep schedules live, while funds always move from configured payer to payee.
+
 use crate::balance::{receive_balance, spend_balance};
 use crate::storage_types::{increment_counter, DataKey, RECURRING_BUMP_AMOUNT, RECURRING_LIFETIME_THRESHOLD};
 use crate::validation::require_positive_amount;

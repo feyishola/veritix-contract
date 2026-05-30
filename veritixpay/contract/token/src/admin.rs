@@ -1,3 +1,7 @@
+//! Admin module.
+//! Owns admin identity storage, authorization checks, and rotation events.
+//! `check_admin` requires signer auth first, then identity match, to prevent spoofed caller paths.
+
 use soroban_sdk::{symbol_short, Address, Env};
 
 use crate::storage_types::{bump_instance, DataKey};

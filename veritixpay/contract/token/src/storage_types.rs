@@ -1,3 +1,7 @@
+//! Shared storage model.
+//! Defines instance-vs-persistent key ownership, value shapes, and TTL bump policy constants.
+//! Instance storage is for contract-global config/counters; persistent storage is for user/payment records.
+
 use soroban_sdk::{contracttype, Address, Env, IntoVal, TryFromVal, Val};
 
 pub const BALANCE_LIFETIME_THRESHOLD: u32 = 518400; // ~30 days

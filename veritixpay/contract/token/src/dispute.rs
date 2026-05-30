@@ -1,3 +1,7 @@
+//! Dispute resolution module.
+//! Uses designated resolvers to settle contested escrows.
+//! Only escrow depositor/beneficiary can open disputes to enforce stake-holder authority.
+
 use crate::balance::{receive_balance, spend_balance};
 use crate::escrow::get_escrow;
 use crate::storage_types::{increment_counter, write_persistent_record, DataKey, DISPUTE_BUMP_AMOUNT, DISPUTE_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT, PERSISTENT_LIFETIME_THRESHOLD};
