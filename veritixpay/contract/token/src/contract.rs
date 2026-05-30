@@ -1,4 +1,4 @@
-use crate::admin::{check_admin, has_admin, read_admin, transfer_admin, write_admin};
+﻿use crate::admin::{check_admin, has_admin, read_admin, transfer_admin, write_admin};
 use crate::allowance::{read_allowance, spend_allowance, write_allowance};
 use crate::balance::{
     decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance,
@@ -15,7 +15,8 @@ use crate::metadata::{
     read_decimal, read_name, read_symbol, validate_metadata, write_metadata, TokenMetadata,
 };
 use crate::recurring::{
-    cancel_recurring, execute_recurring, get_recurring, setup_recurring, RecurringRecord,
+    cancel_recurring, execute_recurring, get_recurring, pause_recurring, resume_recurring,
+    setup_recurring, RecurringRecord,
 };
 use crate::splitter::{
     cancel_split as split_cancel, create_split as split_create, distribute as split_distribute,
@@ -31,41 +32,27 @@ pub struct VeritixToken;
 impl VeritixToken {
     // --- Admin & metadata ---
 
-    /// Sets admin and metadata. Panics if already initialized.
     pub fn initialize(e: Env, admin: Address, name: String, symbol: String, decimal: u32) {
         if has_admin(&e) {
             panic!("already initialized");
         }
-
         admin.require_auth();
-
-        let meta = TokenMetadata {
-            name,
-            symbol,
-            decimal,
-        };
+        let meta = TokenMetadata { name, symbol, decimal };
         validate_metadata(&meta);
         write_admin(&e, &admin);
         write_metadata(&e, meta);
     }
 
-    /// Rotates the contract administrator. Requires current admin auth.
     pub fn set_admin(e: Env, new_admin: Address) {
         transfer_admin(&e, new_admin);
     }
 
-    /// Admin-only. Reclaims tokens from an address and destroys them.
     pub fn clawback(e: Env, admin: Address, from: Address, amount: i128) {
         check_admin(&e, &admin);
         require_positive_amount(amount);
-
-        // Deduct balance without redistributing, effectively burning the tokens
         spend_balance(&e, from.clone(), amount);
         decrease_supply(&e, amount);
-
-        // Emit transparency event
-        e.events()
-            .publish((symbol_short!("clawback"), admin, from), amount);
+        e.events().publish((symbol_short!("clawback"), admin, from), amount);
     }
 
     // --- Freeze controls ---
@@ -82,75 +69,62 @@ impl VeritixToken {
         unfreeze_account(&e, admin, target);
     }
 
-    // --- Mint / burn & supply tracking ---
+    // --- Token interface ---
 
-    /// Admin-only. Mints new tokens to a specific address.
     pub fn mint(e: Env, admin: Address, to: Address, amount: i128) {
         check_admin(&e, &admin);
         require_positive_amount(amount);
+        require_not_frozen_account(&e, &to);
         receive_balance(&e, to.clone(), amount);
         increase_supply(&e, amount);
-        e.events()
-            .publish((symbol_short!("mint"), admin, to), amount);
+        e.events().publish((symbol_short!("mint"), admin, to), amount);
     }
 
-    /// Caller burns their own tokens.
-    pub fn burn(e: Env, from: Address, amount: i128) {
-        require_not_frozen_account(&e, &from);
-        require_positive_amount(amount);
+    pub fn transfer(e: Env, from: Address, to: Address, amount: i128) {
         from.require_auth();
+        require_positive_amount(amount);
+        require_not_frozen_account(&e, &from);
+        require_not_frozen_account(&e, &to);
+        spend_balance(&e, from.clone(), amount);
+        receive_balance(&e, to.clone(), amount);
+        e.events().publish((symbol_short!("transfer"), from, to), amount);
+    }
+
+    pub fn transfer_from(e: Env, spender: Address, from: Address, to: Address, amount: i128) {
+        spender.require_auth();
+        require_positive_amount(amount);
+        require_not_frozen_account(&e, &from);
+        require_not_frozen_account(&e, &to);
+        spend_allowance(&e, from.clone(), spender.clone(), amount);
+        spend_balance(&e, from.clone(), amount);
+        receive_balance(&e, to.clone(), amount);
+        e.events().publish((symbol_short!("transfer"), from, to), amount);
+    }
+
+    pub fn burn(e: Env, from: Address, amount: i128) {
+        from.require_auth();
+        require_positive_amount(amount);
+        require_not_frozen_account(&e, &from);
         spend_balance(&e, from.clone(), amount);
         decrease_supply(&e, amount);
         e.events().publish((symbol_short!("burn"), from), amount);
     }
 
-    /// Spender burns tokens from an account using their allowance.
     pub fn burn_from(e: Env, spender: Address, from: Address, amount: i128) {
-        require_not_frozen_account(&e, &from);
-        require_not_frozen_account(&e, &spender);
-        require_positive_amount(amount);
         spender.require_auth();
+        require_positive_amount(amount);
+        require_not_frozen_account(&e, &from);
         spend_allowance(&e, from.clone(), spender.clone(), amount);
         spend_balance(&e, from.clone(), amount);
         decrease_supply(&e, amount);
-        e.events()
-            .publish((symbol_short!("burn"), spender, from), amount);
+        e.events().publish((symbol_short!("burn"), from), amount);
     }
 
-    // --- Transfers & allowance ---
-
-    /// Standard token transfer between two addresses.
-    pub fn transfer(e: Env, from: Address, to: Address, amount: i128) {
-        require_not_frozen_account(&e, &from);
-        require_positive_amount(amount);
-        from.require_auth();
-        spend_balance(&e, from.clone(), amount);
-        receive_balance(&e, to.clone(), amount);
-        e.events()
-            .publish((symbol_short!("transfer"), from, to), amount);
-    }
-
-    /// Transfer tokens on behalf of a user via allowance.
-    pub fn transfer_from(e: Env, spender: Address, from: Address, to: Address, amount: i128) {
-        require_not_frozen_account(&e, &from);
-        require_not_frozen_account(&e, &spender);
-        require_positive_amount(amount);
-        spender.require_auth();
-        spend_allowance(&e, from.clone(), spender.clone(), amount);
-        spend_balance(&e, from.clone(), amount);
-        receive_balance(&e, to.clone(), amount);
-        e.events()
-            .publish((symbol_short!("transfer"), from, to), amount);
-    }
-
-    /// Sets an allowance for a spender.
-    /// Frozen accounts cannot create new approvals.
     pub fn approve(e: Env, from: Address, spender: Address, amount: i128, expiration_ledger: u32) {
-        require_not_frozen_account(&e, &from);
         from.require_auth();
+        require_positive_amount(amount);
         write_allowance(&e, from.clone(), spender.clone(), amount, expiration_ledger);
-        e.events()
-            .publish((symbol_short!("approve"), from, spender), amount);
+        e.events().publish((symbol_short!("approve"), from, spender), amount);
     }
 
     // --- Read-only views ---
@@ -205,14 +179,11 @@ impl VeritixToken {
         escrow_get(&e, escrow_id)
     }
 
-    /// Returns the current number of escrows created (monotonically increasing counter).
     pub fn escrow_count(e: Env) -> u32 {
         crate::storage_types::bump_instance(&e);
         crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::EscrowCount)
     }
 
-    /// Admin escape hatch: forcibly settles a stuck escrow when the normal
-    /// beneficiary or depositor is frozen. Sends funds to `recipient`.
     pub fn admin_settle_escrow(e: Env, admin: Address, escrow_id: u32, recipient: Address) {
         escrow_admin_settle(&e, admin, escrow_id, recipient)
     }
@@ -223,12 +194,7 @@ impl VeritixToken {
         open_dispute(&e, claimant, escrow_id, resolver)
     }
 
-    pub fn resolve_dispute(
-        e: Env,
-        resolver: Address,
-        dispute_id: u32,
-        release_to_beneficiary: bool,
-    ) {
+    pub fn resolve_dispute(e: Env, resolver: Address, dispute_id: u32, release_to_beneficiary: bool) {
         resolve_dispute(&e, resolver, dispute_id, release_to_beneficiary)
     }
 
@@ -236,7 +202,6 @@ impl VeritixToken {
         dispute_get(&e, dispute_id)
     }
 
-    /// Returns the current number of disputes created (monotonically increasing counter).
     pub fn dispute_count(e: Env) -> u32 {
         crate::storage_types::bump_instance(&e);
         crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::DisputeCount)
@@ -244,12 +209,7 @@ impl VeritixToken {
 
     // --- Splitter ---
 
-    pub fn create_split(
-        e: Env,
-        sender: Address,
-        recipients: Vec<SplitRecipient>,
-        total_amount: i128,
-    ) -> u32 {
+    pub fn create_split(e: Env, sender: Address, recipients: Vec<SplitRecipient>, total_amount: i128) -> u32 {
         split_create(&e, sender, recipients, total_amount)
     }
 
@@ -265,7 +225,6 @@ impl VeritixToken {
         split_get(&e, split_id)
     }
 
-    /// Returns the current number of splits created (monotonically increasing counter).
     pub fn split_count(e: Env) -> u32 {
         crate::storage_types::bump_instance(&e);
         crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::SplitCount)
@@ -273,13 +232,7 @@ impl VeritixToken {
 
     // --- Recurring Payments ---
 
-    pub fn setup_recurring(
-        e: Env,
-        payer: Address,
-        payee: Address,
-        amount: i128,
-        interval: u32,
-    ) -> u32 {
+    pub fn setup_recurring(e: Env, payer: Address, payee: Address, amount: i128, interval: u32) -> u32 {
         setup_recurring(&e, payer, payee, amount, interval)
     }
 
@@ -295,9 +248,16 @@ impl VeritixToken {
         get_recurring(&e, recurring_id)
     }
 
-    /// Returns the current number of recurring payments created (monotonically increasing counter).
     pub fn recurring_count(e: Env) -> u32 {
         crate::storage_types::bump_instance(&e);
         crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::RecurringCount)
+    }
+
+    pub fn pause_recurring(e: Env, caller: Address, recurring_id: u32) {
+        pause_recurring(&e, caller, recurring_id)
+    }
+
+    pub fn resume_recurring(e: Env, caller: Address, recurring_id: u32) {
+        resume_recurring(&e, caller, recurring_id)
     }
 }
