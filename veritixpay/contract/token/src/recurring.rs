@@ -15,6 +15,7 @@ pub struct RecurringRecord {
     pub interval: u32,
     pub last_charged_ledger: u32,
     pub active: bool,
+    pub paused: bool,
 }
 
 fn append_payer_index(e: &Env, payer: &Address, id: u32) {
@@ -44,6 +45,7 @@ pub fn setup_recurring(e: &Env, payer: Address, payee: Address, amount: i128, in
         interval,
         last_charged_ledger: e.ledger().sequence(),
         active: true,
+        paused: false,
     };
     let key = DataKey::Recurring(count);
     e.storage().persistent().set(&key, &record);
@@ -51,6 +53,34 @@ pub fn setup_recurring(e: &Env, payer: Address, payee: Address, amount: i128, in
     append_payer_index(e, &payer, count);
     e.events().publish((symbol_short!("recur_setup"), payer.clone()), (payee, amount));
     count
+    e.events().publish((symbol_short!("recurring_setup"), payer.clone()), (payee, amount));
+    count
+}
+
+pub fn pause_recurring(e: &Env, caller: Address, recurring_id: u32) {
+    caller.require_auth();
+    let key = DataKey::Recurring(recurring_id);
+    let mut record: RecurringRecord = e.storage().persistent().get(&key).unwrap_or_else(|| panic!("recurring record not found"));
+    if record.payer != caller {
+        panic!("unauthorized");
+    }
+    record.paused = true;
+    e.storage().persistent().set(&key, &record);
+    e.storage().persistent().extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+    e.events().publish((symbol_short!("recur_paused"), recurring_id), ());
+}
+
+pub fn resume_recurring(e: &Env, caller: Address, recurring_id: u32) {
+    caller.require_auth();
+    let key = DataKey::Recurring(recurring_id);
+    let mut record: RecurringRecord = e.storage().persistent().get(&key).unwrap_or_else(|| panic!("recurring record not found"));
+    if record.payer != caller {
+        panic!("unauthorized");
+    }
+    record.paused = false;
+    e.storage().persistent().set(&key, &record);
+    e.storage().persistent().extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+    e.events().publish((symbol_short!("recur_resumed"), recurring_id), ());
 }
 
 pub fn execute_recurring(e: &Env, recurring_id: u32) {
@@ -59,6 +89,9 @@ pub fn execute_recurring(e: &Env, recurring_id: u32) {
     e.storage().persistent().extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
     if !record.active {
         panic!("recurring payment is not active");
+    }
+    if record.paused {
+        panic!("recurring payment is paused");
     }
     let current_ledger = e.ledger().sequence();
     if current_ledger < record.last_charged_ledger + record.interval {
