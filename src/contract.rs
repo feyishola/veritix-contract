@@ -29,6 +29,27 @@ pub trait VeriTixPayTrait {
     ) -> u32;
     fn release_multi_escrow(e: Env, caller: Address, multi_escrow_id: u32);
     fn refund_multi_escrow(e: Env, caller: Address, multi_escrow_id: u32);
+    fn ticket_escrow(
+        e: Env,
+        buyer: Address,
+        organizer: Address,
+        token: Address,
+        ticket_price: i128,
+        event_ledger: u32,
+        ticket_ref: Bytes,
+    ) -> u32;
+    fn revenue_split(
+        e: Env,
+        sender: Address,
+        organizer: Address,
+        organizer_bps: u32,
+        artist: Address,
+        artist_bps: u32,
+        platform: Address,
+        token: Address,
+        total_amount: i128,
+        event_ledger: u32,
+    ) -> u32;
 }
 
 #[contract]
@@ -84,5 +105,64 @@ impl VeriTixPayTrait for VeriTixPay {
 
     fn refund_multi_escrow(e: Env, caller: Address, multi_escrow_id: u32) {
         multi_escrow::refund_multi_escrow(e, caller, multi_escrow_id)
+    }
+
+    fn ticket_escrow(
+        e: Env,
+        buyer: Address,
+        organizer: Address,
+        token: Address,
+        ticket_price: i128,
+        event_ledger: u32,
+        ticket_ref: Bytes,
+    ) -> u32 {
+        buyer.require_auth();
+        escrow::create_escrow(
+            e,
+            buyer,
+            organizer,
+            token,
+            ticket_price,
+            event_ledger + 100,
+            ticket_ref,
+        )
+    }
+
+    fn revenue_split(
+        e: Env,
+        sender: Address,
+        organizer: Address,
+        organizer_bps: u32,
+        artist: Address,
+        artist_bps: u32,
+        platform: Address,
+        token: Address,
+        total_amount: i128,
+        event_ledger: u32,
+    ) -> u32 {
+        sender.require_auth();
+        assert!(organizer_bps + artist_bps < 10_000, "invalid basis points");
+        let platform_bps = 10_000 - organizer_bps - artist_bps;
+        let organizer_amt = total_amount * organizer_bps as i128 / 10_000;
+        let artist_amt = total_amount * artist_bps as i128 / 10_000;
+        let platform_amt = total_amount - organizer_amt - artist_amt;
+
+        let recipients = Vec::from_array(
+            &e,
+            [
+                (organizer, organizer_amt),
+                (artist, artist_amt),
+                (platform, platform_amt),
+            ],
+        );
+        let split_id = multi_escrow::create_multi_escrow(
+            e.clone(),
+            sender.clone(),
+            recipients,
+            token,
+            event_ledger + 100,
+        );
+        multi_escrow::release_multi_escrow(e, sender, split_id);
+        split_id
     }
 }

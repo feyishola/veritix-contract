@@ -2,7 +2,7 @@
 # Invoke VeritixToken contract functions on localnet or testnet.
 #
 # Required environment variables:
-#   CONTRACT_ID      — Contract address returned by deploy.sh
+#   CONTRACT_ID      — Contract address returned by deploy.sh (optional if .contract-id exists)
 #   STELLAR_NETWORK  — "localnet" or "testnet" (default: localnet)
 #   STELLAR_ACCOUNT  — Stellar account alias (default: alice)
 #
@@ -13,10 +13,12 @@
 
 set -euo pipefail
 
-NETWORK="${STELLAR_NETWORK:-localnet}"
+NETWORK="${STELLAR_NETWORK:-testnet}"
 ACCOUNT="${STELLAR_ACCOUNT:-alice}"
-CONTRACT_ID="${CONTRACT_ID:?CONTRACT_ID is required}"
+CONTRACT_ID="${CONTRACT_ID:-$(cat .contract-id 2>/dev/null || true)}"
+CONTRACT_ID="${CONTRACT_ID:?CONTRACT_ID missing. Run deploy.sh or export CONTRACT_ID}"
 COMMAND="${1:?Usage: invoke.sh <command> [args...]}"
+ARGS="${ARGS:-}"
 
 invoke() {
   stellar contract invoke \
@@ -52,7 +54,12 @@ case "$COMMAND" in
       --amount "${4:-100}" --expiration_ledger "${5:-1000000}"
     ;;
   *)
-    echo "Running raw invoke: $*"
-    invoke "$@"
+    if [ -n "$ARGS" ]; then
+      # shellcheck disable=SC2086
+      invoke "$COMMAND" $ARGS
+    else
+      echo "Running raw invoke: $*"
+      invoke "$@"
+    fi
     ;;
 esac
