@@ -2,6 +2,7 @@ use crate::admin::check_admin;
 use crate::balance::{receive_balance, spend_balance};
 use crate::storage_types::{
     increment_counter, read_persistent_record, write_persistent_record, DataKey,
+    ESCROW_BUMP_AMOUNT, ESCROW_LIFETIME_THRESHOLD,
 };
 use crate::validation::{require_current_or_future_ledger, require_positive_amount};
 use soroban_sdk::{contracttype, symbol_short, Address, Env};
@@ -160,10 +161,14 @@ pub fn get_escrow(e: &Env, escrow_id: u32) -> EscrowRecord {
 }
 
 pub fn try_get_escrow(e: &Env, escrow_id: u32) -> Result<EscrowRecord, &'static str> {
-    if e.storage().persistent().has(&DataKey::Escrow(escrow_id)) {
+    let key = DataKey::Escrow(escrow_id);
+    if e.storage().persistent().has(&key) {
+        e.storage()
+            .persistent()
+            .extend_ttl(&key, ESCROW_LIFETIME_THRESHOLD, ESCROW_BUMP_AMOUNT);
         Ok(read_persistent_record(
             e,
-            &DataKey::Escrow(escrow_id),
+            &key,
             "escrow not found",
         ))
     } else {

@@ -214,6 +214,34 @@ fn test_transfer_from() {
 }
 
 #[test]
+fn test_token_info_combines_metadata_and_supply() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &123i128);
+    let info = client.token_info();
+    assert_eq!(info.name, String::from_str(&env, "Veritix"));
+    assert_eq!(info.symbol, String::from_str(&env, "VTX"));
+    assert_eq!(info.decimal, 7);
+    assert_eq!(info.total_supply, 123);
+}
+
+#[test]
+fn test_transfer_with_memo_moves_funds() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let receiver = Address::generate(&env);
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1000i128);
+    let memo = soroban_sdk::Bytes::from_array(&env, b"ticket-001");
+    client.transfer_with_memo(&user, &receiver, &250i128, &memo);
+    assert_eq!(client.balance(&user), 750);
+    assert_eq!(client.balance(&receiver), 250);
+}
+
+#[test]
 fn test_approve_and_spend_allowance() {
     let (env, admin, user) = setup();
     env.mock_all_auths();
