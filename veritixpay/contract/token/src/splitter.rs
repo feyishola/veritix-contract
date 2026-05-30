@@ -1,4 +1,5 @@
 use crate::balance::{receive_balance, spend_balance};
+use crate::escrow::EscrowRecord;
 use crate::storage_types::{
     increment_counter, read_persistent_record, write_persistent_record, DataKey,
     PERSISTENT_BUMP_AMOUNT, PERSISTENT_LIFETIME_THRESHOLD,
@@ -191,4 +192,56 @@ pub fn cancel_split(e: &Env, caller: Address, split_id: u32) {
 
 pub fn get_split(e: &Env, split_id: u32) -> SplitRecord {
     read_persistent_record(e, &DataKey::Split(split_id), "split record not found")
+}
+
+/// Creates a split and immediately locks each recipient's share in its own escrow.
+/// Returns a `Vec<u32>` of escrow IDs in recipient order.
+/// Single atomic call — funds move once from sender into per-recipient escrows.
+pub fn create_split_with_escrow(
+    e: &Env,
+    sender: Address,
+    recipients: Vec<SplitRecipient>,
+    total_amount: i128,
+    expiry_ledger: u32,
+) -> Vec<u32> {
+    require_positive_amount(total_amount);
+    sender.require_auth();
+    if recipients.is_empty() {
+        panic!("recipients cannot be empty");
+    }
+    spend_balance(e, sender.clone(), total_amount);
+    receive_balance(e, e.current_contract_address(), total_amount);
+
+    let mut escrow_ids = Vec::new(e);
+    let len = recipients.len();
+    let mut remaining = total_amount;
+
+    for (i, recipient) in recipients.iter().enumerate() {
+        let share = if i == (len as usize - 1) {
+            remaining
+        } else {
+            total_amount
+                .checked_mul(recipient.share_bps as i128)
+                .expect("overflow")
+                / 10000
+        };
+        remaining = remaining.checked_sub(share).expect("underflow");
+
+        let escrow_id = increment_counter(e, &DataKey::EscrowCount);
+        write_persistent_record(
+            e,
+            &DataKey::Escrow(escrow_id),
+            &EscrowRecord {
+                id: escrow_id,
+                depositor: sender.clone(),
+                beneficiary: recipient.address.clone(),
+                amount: share,
+                released: false,
+                refunded: false,
+                expiry_ledger,
+            },
+        );
+        escrow_ids.push_back(escrow_id);
+    }
+    escrow_ids
 }
