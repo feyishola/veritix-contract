@@ -192,3 +192,28 @@ pub fn cancel_split(e: &Env, caller: Address, split_id: u32) {
 pub fn get_split(e: &Env, split_id: u32) -> SplitRecord {
     read_persistent_record(e, &DataKey::Split(split_id), "split record not found")
 }
+
+/// Distributes multiple splits in a single invocation.
+/// Caller must be the sender for every split; batch is rejected if any ID is
+/// unauthorised. Maximum 10 split IDs per call.
+pub fn bulk_distribute(e: &Env, caller: Address, split_ids: Vec<u32>) {
+    caller.require_auth();
+    if split_ids.len() > 10 {
+        panic!("BulkLimit: maximum 10 split IDs per batch");
+    }
+    // Validate caller is sender for all splits before touching any funds
+    for split_id in split_ids.iter() {
+        let record: SplitRecord = e
+            .storage()
+            .persistent()
+            .get(&DataKey::Split(split_id))
+            .expect("split not found");
+        if record.sender != caller {
+            panic!("unauthorized");
+        }
+    }
+    // Execute
+    for split_id in split_ids.iter() {
+        distribute(e, caller.clone(), split_id);
+    }
+}
