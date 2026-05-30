@@ -1,5 +1,6 @@
 use crate::admin::{check_admin, has_admin, read_admin, transfer_admin, write_admin};
-use crate::allowance::{read_allowance, spend_allowance, write_allowance};
+use crate::allowance::{get_allowances_for_spender, read_allowance, spend_allowance, write_allowance};
+use crate::batch::{clawback_batch, freeze_batch, unfreeze_batch};
 use crate::balance::{
     decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance,
     spend_balance,
@@ -22,10 +23,17 @@ use crate::splitter::{
     get_split as split_get, SplitRecord, SplitRecipient,
 };
 use crate::validation::{require_not_frozen_account, require_positive_amount};
-use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, String, Vec};
 
 #[contract]
 pub struct VeritixToken;
+
+#[derive(Clone)]
+#[contracttype]
+pub struct AdminInfo {
+    pub admin: Address,
+    pub paused: bool,
+}
 
 #[contractimpl]
 impl VeritixToken {
@@ -67,6 +75,9 @@ impl VeritixToken {
         e.events()
             .publish((symbol_short!("clawback"), admin, from), amount);
     }
+    pub fn clawback_batch(e: Env, admin: Address, targets: Vec<(Address, i128)>) {
+        clawback_batch(&e, admin, targets);
+    }
 
     // --- Freeze controls ---
 
@@ -80,6 +91,13 @@ impl VeritixToken {
         let admin = read_admin(&e);
         check_admin(&e, &admin);
         unfreeze_account(&e, admin, target);
+    }
+    pub fn freeze_batch(e: Env, admin: Address, targets: Vec<Address>) {
+        freeze_batch(&e, admin, targets);
+    }
+
+    pub fn unfreeze_batch(e: Env, admin: Address, targets: Vec<Address>) {
+        unfreeze_batch(&e, admin, targets);
     }
 
     // --- Mint / burn & supply tracking ---
@@ -166,9 +184,18 @@ impl VeritixToken {
     pub fn allowance(e: Env, from: Address, spender: Address) -> i128 {
         read_allowance(&e, from, spender).amount
     }
+    pub fn allowances_for_spender(e: Env, spender: Address) -> Vec<Address> {
+        get_allowances_for_spender(&e, spender)
+    }
 
     pub fn admin(e: Env) -> Address {
         read_admin(&e)
+    }
+    pub fn admin_info(e: Env) -> AdminInfo {
+        AdminInfo {
+            admin: read_admin(&e),
+            paused: false,
+        }
     }
 
     pub fn is_frozen(e: Env, id: Address) -> bool {

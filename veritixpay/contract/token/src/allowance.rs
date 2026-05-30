@@ -2,7 +2,7 @@ use crate::storage_types::{
     AllowanceDataKey, AllowanceValue, DataKey, ALLOWANCE_BUMP_AMOUNT, ALLOWANCE_LIFETIME_THRESHOLD,
 };
 use crate::validation::{require_current_or_future_ledger, require_non_negative_amount};
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{Address, Env, Vec};
 
 pub fn read_allowance(e: &Env, from: Address, spender: Address) -> AllowanceValue {
     let key = DataKey::Allowance(AllowanceDataKey {
@@ -56,15 +56,48 @@ pub fn write_allowance(
         spender: spender.clone(),
     });
 
+    let index_key = DataKey::SpenderAllowances(spender.clone());
+    let mut spenders_from: Vec<Address> = e
+        .storage()
+        .persistent()
+        .get(&index_key)
+        .unwrap_or_else(|| Vec::new(e));
+
     if amount == 0 {
         e.storage().persistent().remove(&key);
+        let mut updated = Vec::new(e);
+        for i in 0..spenders_from.len() {
+            let addr = spenders_from.get(i).unwrap();
+            if addr != from {
+                updated.push_back(addr);
+            }
+        }
+        e.storage().persistent().set(&index_key, &updated);
     } else {
+        let mut exists = false;
+        for i in 0..spenders_from.len() {
+            if spenders_from.get(i).unwrap() == from {
+                exists = true;
+                break;
+            }
+        }
+        if !exists {
+            spenders_from.push_back(from.clone());
+            e.storage().persistent().set(&index_key, &spenders_from);
+        }
         let allowance = AllowanceValue {
             amount,
             expiration_ledger,
         };
         e.storage().persistent().set(&key, &allowance);
     }
+}
+
+pub fn get_allowances_for_spender(e: &Env, spender: Address) -> Vec<Address> {
+    e.storage()
+        .persistent()
+        .get(&DataKey::SpenderAllowances(spender))
+        .unwrap_or_else(|| Vec::new(e))
 }
 
 pub fn spend_allowance(e: &Env, from: Address, spender: Address, amount: i128) {

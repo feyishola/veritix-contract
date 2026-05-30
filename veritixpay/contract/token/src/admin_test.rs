@@ -1,6 +1,5 @@
 #[cfg(test)]
 mod admin_test {
-continue
     use soroban_sdk::{testutils::Address as _, testutils::Events as _, Address, Env, String};
 
     use crate::admin::{has_admin, read_admin, transfer_admin, write_admin};
@@ -142,5 +141,54 @@ continue
         env.mock_all_auths();
         transfer_admin(&env, admin.clone());
         assert_eq!(read_admin(&env), admin);
+    }
+
+    #[test]
+    fn test_admin_info_tracks_admin_rotation() {
+        let env = setup_env();
+        let (_admin, client) = create_initialized_client(&env);
+        let new_admin = Address::generate(&env);
+        let before = client.admin_info();
+        assert_eq!(before.paused, false);
+        client.set_admin(&new_admin);
+        let after = client.admin_info();
+        assert_eq!(after.admin, new_admin);
+        assert_eq!(after.paused, false);
+    }
+
+    #[test]
+    fn test_freeze_batch_and_unfreeze_batch() {
+        let env = setup_env();
+        let (_admin, client) = create_initialized_client(&env);
+        let a = Address::generate(&env);
+        let b = Address::generate(&env);
+        let mut targets = soroban_sdk::Vec::new(&env);
+        targets.push_back(a.clone());
+        targets.push_back(b.clone());
+        client.freeze_batch(&client.admin(), &targets);
+        assert!(client.is_frozen(&a));
+        assert!(client.is_frozen(&b));
+        client.unfreeze_batch(&client.admin(), &targets);
+        assert!(!client.is_frozen(&a));
+        assert!(!client.is_frozen(&b));
+    }
+
+    #[test]
+    fn test_clawback_batch_reduces_balances_and_supply() {
+        let env = setup_env();
+        let (_admin, client) = create_initialized_client(&env);
+        let admin = client.admin();
+        let a = Address::generate(&env);
+        let b = Address::generate(&env);
+        client.mint(&admin, &a, &1000);
+        client.mint(&admin, &b, &1000);
+        let mut targets = soroban_sdk::Vec::new(&env);
+        targets.push_back((a.clone(), 200));
+        targets.push_back((b.clone(), 300));
+        let before_supply = client.total_supply();
+        client.clawback_batch(&admin, &targets);
+        assert_eq!(client.balance(&a), 800);
+        assert_eq!(client.balance(&b), 700);
+        assert_eq!(client.total_supply(), before_supply - 500);
     }
 }
