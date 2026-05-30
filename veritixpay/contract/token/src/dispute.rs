@@ -1,6 +1,6 @@
 use crate::balance::{receive_balance, spend_balance};
 use crate::escrow::get_escrow;
-use crate::storage_types::{increment_counter, write_persistent_record, DataKey, PERSISTENT_BUMP_AMOUNT, PERSISTENT_LIFETIME_THRESHOLD};
+use crate::storage_types::{increment_counter, write_persistent_record, DataKey, DISPUTE_BUMP_AMOUNT, DISPUTE_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT, PERSISTENT_LIFETIME_THRESHOLD};
 use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol};
 
 #[contracttype]
@@ -70,7 +70,7 @@ pub fn open_dispute(e: &Env, claimant: Address, escrow_id: u32, resolver: Addres
     e.storage().persistent().set(&dispute_key, &record);
     e.storage()
         .persistent()
-        .extend_ttl(&dispute_key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+        .extend_ttl(&dispute_key, DISPUTE_LIFETIME_THRESHOLD, DISPUTE_BUMP_AMOUNT);
     e.storage().persistent().set(&escrow_dispute_key, &count);
     e.storage()
         .persistent()
@@ -135,7 +135,7 @@ pub fn resolve_dispute(e: &Env, resolver: Address, dispute_id: u32, release_to_b
         .expect("Dispute not found");
     e.storage()
         .persistent()
-        .extend_ttl(&dispute_key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+        .extend_ttl(&dispute_key, DISPUTE_LIFETIME_THRESHOLD, DISPUTE_BUMP_AMOUNT);
 
     if dispute.status != DisputeStatus::Open {
         panic!("AlreadyResolved: This dispute has already been resolved");
@@ -177,6 +177,6 @@ pub fn get_dispute(e: &Env, dispute_id: u32) -> DisputeRecord {
         .expect("Dispute not found");
     e.storage()
         .persistent()
-        .extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+        .extend_ttl(&key, DISPUTE_LIFETIME_THRESHOLD, DISPUTE_BUMP_AMOUNT);
     record
 }

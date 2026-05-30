@@ -1,5 +1,5 @@
 use crate::balance::{receive_balance, spend_balance};
-use crate::storage_types::{increment_counter, DataKey, PERSISTENT_BUMP_AMOUNT, PERSISTENT_LIFETIME_THRESHOLD};
+use crate::storage_types::{increment_counter, DataKey, RECURRING_BUMP_AMOUNT, RECURRING_LIFETIME_THRESHOLD};
 use crate::validation::require_positive_amount;
 use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol};
 
@@ -55,7 +55,7 @@ pub fn setup_recurring(
     e.storage().persistent().set(&key, &record);
     e.storage()
         .persistent()
-        .extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+        .extend_ttl(&key, RECURRING_LIFETIME_THRESHOLD, RECURRING_BUMP_AMOUNT);
 
     // 4. Emit Observability Event
     e.events().publish(
@@ -77,7 +77,7 @@ pub fn execute_recurring(e: &Env, recurring_id: u32) {
         .unwrap_or_else(|| panic!("recurring record not found"));
     e.storage()
         .persistent()
-        .extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+        .extend_ttl(&key, RECURRING_LIFETIME_THRESHOLD, RECURRING_BUMP_AMOUNT);
 
     if !record.active {
         panic!("recurring payment is not active");
@@ -103,7 +103,7 @@ pub fn execute_recurring(e: &Env, recurring_id: u32) {
     e.storage().persistent().set(&key, &record);
     e.storage()
         .persistent()
-        .extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+        .extend_ttl(&key, RECURRING_LIFETIME_THRESHOLD, RECURRING_BUMP_AMOUNT);
 
     e.events().publish(
         (symbol_short!("recurring_executed"), recurring_id),
@@ -130,7 +130,7 @@ pub fn cancel_recurring(e: &Env, caller: Address, recurring_id: u32) {
     e.storage().persistent().set(&key, &record);
     e.storage()
         .persistent()
-        .extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+        .extend_ttl(&key, RECURRING_LIFETIME_THRESHOLD, RECURRING_BUMP_AMOUNT);
 
     e.events().publish(
         (
@@ -151,6 +151,6 @@ pub fn get_recurring(e: &Env, recurring_id: u32) -> RecurringRecord {
         .unwrap_or_else(|| panic!("recurring record not found"));
     e.storage()
         .persistent()
-        .extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+        .extend_ttl(&key, RECURRING_LIFETIME_THRESHOLD, RECURRING_BUMP_AMOUNT);
     record
 }

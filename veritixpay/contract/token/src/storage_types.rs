@@ -9,6 +9,12 @@ pub const INSTANCE_BUMP_AMOUNT: u32 = 535000;
 /// Threshold and bump for long-lived persistent records (escrow, split, dispute, recurring, freeze).
 pub const PERSISTENT_LIFETIME_THRESHOLD: u32 = 518400; // ~30 days
 pub const PERSISTENT_BUMP_AMOUNT: u32 = 535000;
+pub const SPLIT_LIFETIME_THRESHOLD: u32 = PERSISTENT_LIFETIME_THRESHOLD;
+pub const SPLIT_BUMP_AMOUNT: u32 = PERSISTENT_BUMP_AMOUNT;
+pub const RECURRING_LIFETIME_THRESHOLD: u32 = PERSISTENT_LIFETIME_THRESHOLD;
+pub const RECURRING_BUMP_AMOUNT: u32 = PERSISTENT_BUMP_AMOUNT;
+pub const DISPUTE_LIFETIME_THRESHOLD: u32 = PERSISTENT_LIFETIME_THRESHOLD;
+pub const DISPUTE_BUMP_AMOUNT: u32 = PERSISTENT_BUMP_AMOUNT;
 
 #[derive(Clone)]
 #[contracttype]
@@ -82,6 +88,8 @@ pub fn read_counter(e: &Env, key: &DataKey) -> u32 {
 }
 
 pub fn increment_counter(e: &Env, key: &DataKey) -> u32 {
+    // Keep instance storage alive whenever counters are mutated to prevent ID reset/collision.
+    bump_instance(e);
     let next = read_counter(e, key) + 1;
     e.storage().instance().set(key, &next);
     next
