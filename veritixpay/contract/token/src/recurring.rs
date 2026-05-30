@@ -27,7 +27,7 @@ pub fn setup_recurring(
     require_positive_amount(amount);
 
     if interval == 0 {
-        panic!("interval must be positive");
+        panic!("InvalidInterval: interval must be at least 1");
     }
 
     if payer == payee {
