@@ -26,6 +26,8 @@ pub struct DisputeRecord {
 
 fn append_resolver_dispute(e: &Env, resolver: &Address, id: u32) {
     let key = DataKey::ResolverDisputes(resolver.clone());
+fn append_open_dispute(e: &Env, id: u32) {
+    let key = DataKey::OpenDisputes;
     let mut ids: Vec<u32> = e.storage().persistent().get(&key).unwrap_or_else(|| vec![e]);
     ids.push_back(id);
     e.storage().persistent().set(&key, &ids);
@@ -34,6 +36,8 @@ fn append_resolver_dispute(e: &Env, resolver: &Address, id: u32) {
 
 fn remove_resolver_dispute(e: &Env, resolver: &Address, id: u32) {
     let key = DataKey::ResolverDisputes(resolver.clone());
+fn remove_open_dispute(e: &Env, id: u32) {
+    let key = DataKey::OpenDisputes;
     let ids: Vec<u32> = e.storage().persistent().get(&key).unwrap_or_else(|| vec![e]);
     let mut updated: Vec<u32> = vec![e];
     for i in 0..ids.len() {
@@ -48,6 +52,20 @@ pub fn open_dispute(e: &Env, claimant: Address, escrow_id: u32, resolver: Addres
     claimant.require_auth();
     let escrow = get_escrow(e, escrow_id);
     if escrow.released || escrow.refunded { panic!("InvalidState: Cannot open dispute on a settled escrow"); }
+        if v != id {
+            updated.push_back(v);
+        }
+    }
+    e.storage().persistent().set(&key, &updated);
+    e.storage().persistent().extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+}
+
+pub fn open_dispute(e: &Env, claimant: Address, escrow_id: u32, resolver: Address) -> u32 {
+    claimant.require_auth();
+    let escrow = get_escrow(e, escrow_id);
+    if escrow.released || escrow.refunded {
+        panic!("InvalidState: Cannot open dispute on a settled escrow");
+    }
     if claimant != escrow.depositor && claimant != escrow.beneficiary {
         panic!("Unauthorized: Only depositor or beneficiary can open a dispute");
     }
@@ -60,6 +78,7 @@ pub fn open_dispute(e: &Env, claimant: Address, escrow_id: u32, resolver: Addres
     let count = increment_counter(e, &DataKey::DisputeCount);
     let record = DisputeRecord {
         id: count, escrow_id, claimant: claimant.clone(), resolver: resolver.clone(), status: DisputeStatus::Open,
+        id: count, escrow_id, claimant: claimant.clone(), resolver, status: DisputeStatus::Open,
     };
     let dispute_key = DataKey::Dispute(count);
     let escrow_dispute_key = DataKey::EscrowDispute(escrow_id);
@@ -68,6 +87,7 @@ pub fn open_dispute(e: &Env, claimant: Address, escrow_id: u32, resolver: Addres
     e.storage().persistent().set(&escrow_dispute_key, &count);
     e.storage().persistent().extend_ttl(&escrow_dispute_key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
     append_resolver_dispute(e, &resolver, count);
+    append_open_dispute(e, count);
     e.events().publish((symbol_short!("dispute_opened"), escrow_id, claimant.clone()), ());
     count
 }
@@ -103,6 +123,7 @@ pub fn resolve_dispute(e: &Env, resolver: Address, dispute_id: u32, release_to_b
     e.storage().persistent().set(&dispute_key, &dispute);
     e.storage().persistent().extend_ttl(&dispute_key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
     e.storage().persistent().remove(&DataKey::EscrowDispute(dispute.escrow_id));
+    remove_open_dispute(e, dispute_id);
     e.events().publish((symbol_short!("dispute_resolved"), dispute_id, resolver), release_to_beneficiary);
 }
 
@@ -115,5 +136,7 @@ pub fn get_dispute(e: &Env, dispute_id: u32) -> DisputeRecord {
 
 pub fn get_disputes_by_resolver(e: &Env, resolver: Address) -> Vec<u32> {
     let key = DataKey::ResolverDisputes(resolver);
+pub fn get_open_disputes(e: &Env) -> Vec<u32> {
+    let key = DataKey::OpenDisputes;
     e.storage().persistent().get(&key).unwrap_or_else(|| vec![e])
 }

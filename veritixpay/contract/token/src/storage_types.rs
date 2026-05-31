@@ -35,12 +35,14 @@ pub enum DataKey {
     Escrow(u32),
     RecurringCount,
     Recurring(u32),
+    PayerRecurrings(Address),
     SplitCount,
     Split(u32),
     DisputeCount,
     Dispute(u32),
     EscrowDispute(u32),
     ResolverDisputes(Address),
+    OpenDisputes,
     Freeze(Address),
 }
 
