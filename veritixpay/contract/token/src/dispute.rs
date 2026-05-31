@@ -1,5 +1,7 @@
 ﻿use crate::balance::{receive_balance, spend_balance};
 use crate::escrow::get_escrow;
+use crate::storage_types::{increment_counter, write_persistent_record, DataKey, PERSISTENT_BUMP_AMOUNT, PERSISTENT_LIFETIME_THRESHOLD};
+use soroban_sdk::{contracttype, symbol_short, Address, Bytes, Env, Symbol};
 use crate::storage_types::{
     increment_counter, write_persistent_record, DataKey, PERSISTENT_BUMP_AMOUNT,
     PERSISTENT_LIFETIME_THRESHOLD,
@@ -17,6 +19,12 @@ pub enum DisputeStatus { Open, ResolvedForBeneficiary, ResolvedForDepositor }
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DisputeRecord {
+    pub id: u32,
+    pub escrow_id: u32,
+    pub claimant: Address,
+    pub resolver: Address,
+    pub status: DisputeStatus,
+    pub resolution_note: Bytes,
     pub id: u32, pub escrow_id: u32, pub claimant: Address,
     pub resolver: Address, pub status: DisputeStatus,
     pub appeal_deadline_ledger: u32,
@@ -94,6 +102,12 @@ pub fn open_dispute(e: &Env, claimant: Address, escrow_id: u32, resolver: Addres
     }
     let count = increment_counter(e, &DataKey::DisputeCount);
     let record = DisputeRecord {
+        id: count,
+        escrow_id,
+        claimant: claimant.clone(),
+        resolver,
+        status: DisputeStatus::Open,
+        resolution_note: Bytes::new(e),
         id: count, escrow_id, claimant: claimant.clone(), resolver: resolver.clone(), status: DisputeStatus::Open,
         id: count, escrow_id, claimant: claimant.clone(), resolver, status: DisputeStatus::Open,
     };
@@ -174,6 +188,32 @@ pub fn get_dispute(e: &Env, dispute_id: u32) -> DisputeRecord {
     record
 }
 
+/// Resolves a dispute and attaches a permanent resolution note (max 128 bytes).
+pub fn resolve_dispute_with_note(
+    e: &Env,
+    resolver: Address,
+    dispute_id: u32,
+    release_to_beneficiary: bool,
+    note: Bytes,
+) {
+    if note.len() > 128 {
+        panic!("NoteTooLong: resolution note cannot exceed 128 bytes");
+    }
+    resolve_dispute(e, resolver, dispute_id, release_to_beneficiary);
+    let dispute_key = DataKey::Dispute(dispute_id);
+    let mut record: DisputeRecord = e
+        .storage()
+        .persistent()
+        .get(&dispute_key)
+        .expect("Dispute not found");
+    record.resolution_note = note;
+    e.storage()
+        .persistent()
+        .set(&dispute_key, &record);
+    e.storage()
+        .persistent()
+        .extend_ttl(&dispute_key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+}
 pub fn get_dispute_history_for_escrow(e: &Env, escrow_id: u32) -> Vec<u32> {
     let key = DataKey::EscrowDisputeHistory(escrow_id);
 pub fn get_disputes_by_resolver(e: &Env, resolver: Address) -> Vec<u32> {
