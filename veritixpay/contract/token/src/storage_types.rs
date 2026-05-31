@@ -41,6 +41,7 @@ pub enum DataKey {
     DisputeCount,
     Dispute(u32),
     EscrowDispute(u32),
+    OpenDisputes,
     Freeze(Address),
 }
 
