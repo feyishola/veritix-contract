@@ -1,5 +1,6 @@
 use crate::storage_types::{
     AllowanceDataKey, AllowanceValue, DataKey, ALLOWANCE_BUMP_AMOUNT, ALLOWANCE_LIFETIME_THRESHOLD,
+    PERSISTENT_BUMP_AMOUNT, PERSISTENT_LIFETIME_THRESHOLD,
 };
 use crate::validation::{require_current_or_future_ledger, require_non_negative_amount};
 use soroban_sdk::{Address, Env, Vec};
@@ -73,6 +74,12 @@ pub fn write_allowance(
             }
         }
         e.storage().persistent().set(&index_key, &updated);
+        // Keep spender index alive for long-lived delegated payment lookups.
+        e.storage().persistent().extend_ttl(
+            &index_key,
+            PERSISTENT_LIFETIME_THRESHOLD,
+            PERSISTENT_BUMP_AMOUNT,
+        );
     } else {
         let mut exists = false;
         for i in 0..spenders_from.len() {
@@ -84,12 +91,23 @@ pub fn write_allowance(
         if !exists {
             spenders_from.push_back(from.clone());
             e.storage().persistent().set(&index_key, &spenders_from);
+            // Keep spender index alive for long-lived delegated payment lookups.
+            e.storage().persistent().extend_ttl(
+                &index_key,
+                PERSISTENT_LIFETIME_THRESHOLD,
+                PERSISTENT_BUMP_AMOUNT,
+            );
         }
         let allowance = AllowanceValue {
             amount,
             expiration_ledger,
         };
         e.storage().persistent().set(&key, &allowance);
+        e.storage().persistent().extend_ttl(
+            &key,
+            ALLOWANCE_LIFETIME_THRESHOLD,
+            ALLOWANCE_BUMP_AMOUNT,
+        );
     }
 }
 
