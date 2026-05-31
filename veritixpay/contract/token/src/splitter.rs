@@ -5,7 +5,7 @@ use crate::storage_types::{
     PERSISTENT_BUMP_AMOUNT, PERSISTENT_LIFETIME_THRESHOLD,
 };
 use crate::validation::require_positive_amount;
-use soroban_sdk::{contracttype, symbol_short, Address, Env, Vec};
+use soroban_sdk::{contracttype, symbol_short, Address, Bytes, Env, Vec};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -23,6 +23,7 @@ pub struct SplitRecord {
     pub total_amount: i128,
     pub distributed: bool,
     pub cancelled: bool,
+    pub memo: Bytes,
 }
 
 pub fn create_split(
@@ -80,6 +81,7 @@ pub fn create_split(
         total_amount,
         distributed: false,
         cancelled: false,
+        memo: Bytes::new(e),
     };
     write_persistent_record(e, &DataKey::Split(count), &record);
 
@@ -198,6 +200,8 @@ pub fn get_split(e: &Env, split_id: u32) -> SplitRecord {
 /// Returns a `Vec<u32>` of escrow IDs in recipient order.
 /// Single atomic call — funds move once from sender into per-recipient escrows.
 pub fn create_split_with_escrow(
+/// Creates a split tagged with a memo (max 64 bytes) for off-chain correlation.
+pub fn create_split_with_memo(
     e: &Env,
     sender: Address,
     recipients: Vec<SplitRecipient>,
@@ -244,4 +248,18 @@ pub fn create_split_with_escrow(
         escrow_ids.push_back(escrow_id);
     }
     escrow_ids
+    memo: Bytes,
+) -> u32 {
+    if memo.len() > 64 {
+        panic!("MemoTooLong: memo cannot exceed 64 bytes");
+    }
+    let id = create_split(e, sender, recipients, total_amount);
+    let mut record: SplitRecord = e
+        .storage()
+        .persistent()
+        .get(&DataKey::Split(id))
+        .expect("split not found");
+    record.memo = memo;
+    write_persistent_record(e, &DataKey::Split(id), &record);
+    id
 }
