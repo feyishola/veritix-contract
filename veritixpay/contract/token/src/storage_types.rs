@@ -26,6 +26,7 @@ pub enum DataKey {
     EscrowDispute(u32), EscrowDisputeHistory(u32), Freeze(Address),
     Admin,
     Allowance(AllowanceDataKey),
+    SpenderAllowances(Address),
     Balance(Address),
     Metadata,
     TotalSupply,

@@ -6,6 +6,7 @@
 
 pub mod admin;
 pub mod allowance;
+pub mod batch;
 pub mod balance;
 pub mod dispute;
 pub mod escrow;
