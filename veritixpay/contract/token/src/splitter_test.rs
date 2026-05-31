@@ -438,3 +438,26 @@ fn test_split_count_increments_on_create() {
         assert_eq!(read_counter(&e, &DataKey::SplitCount), 3);
     });
 }
+
+#[test]
+fn test_create_split_with_memo_stores_memo() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 500);
+        let recipients = make_recipients(&e, &[(r1.clone(), 10000)]);
+        let memo = soroban_sdk::Bytes::from_slice(&e, b"order-ref-001");
+        let split_id = crate::splitter::create_split_with_memo(
+            &e,
+            sender.clone(),
+            recipients,
+            500,
+            memo.clone(),
+        );
+        let record = get_split(&e, split_id);
+        assert_eq!(record.memo, memo);
+    });
+}

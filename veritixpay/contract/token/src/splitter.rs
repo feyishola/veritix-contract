@@ -4,7 +4,7 @@ use crate::storage_types::{
     PERSISTENT_BUMP_AMOUNT, PERSISTENT_LIFETIME_THRESHOLD,
 };
 use crate::validation::require_positive_amount;
-use soroban_sdk::{contracttype, symbol_short, Address, Env, Vec};
+use soroban_sdk::{contracttype, symbol_short, Address, Bytes, Env, Vec};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -22,6 +22,7 @@ pub struct SplitRecord {
     pub total_amount: i128,
     pub distributed: bool,
     pub cancelled: bool,
+    pub memo: Bytes,
 }
 
 pub fn create_split(
@@ -79,6 +80,7 @@ pub fn create_split(
         total_amount,
         distributed: false,
         cancelled: false,
+        memo: Bytes::new(e),
     };
     write_persistent_record(e, &DataKey::Split(count), &record);
 
@@ -191,4 +193,26 @@ pub fn cancel_split(e: &Env, caller: Address, split_id: u32) {
 
 pub fn get_split(e: &Env, split_id: u32) -> SplitRecord {
     read_persistent_record(e, &DataKey::Split(split_id), "split record not found")
+}
+
+/// Creates a split tagged with a memo (max 64 bytes) for off-chain correlation.
+pub fn create_split_with_memo(
+    e: &Env,
+    sender: Address,
+    recipients: Vec<SplitRecipient>,
+    total_amount: i128,
+    memo: Bytes,
+) -> u32 {
+    if memo.len() > 64 {
+        panic!("MemoTooLong: memo cannot exceed 64 bytes");
+    }
+    let id = create_split(e, sender, recipients, total_amount);
+    let mut record: SplitRecord = e
+        .storage()
+        .persistent()
+        .get(&DataKey::Split(id))
+        .expect("split not found");
+    record.memo = memo;
+    write_persistent_record(e, &DataKey::Split(id), &record);
+    id
 }
