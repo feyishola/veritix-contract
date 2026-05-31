@@ -78,6 +78,23 @@ fn test_stranger_gets_empty_list() {
     assert_eq!(t.client.get_escrows_by_beneficiary(&stranger).len(), 0);
 }
 
+#[test]
+fn test_ticket_escrow_helper_create_and_release() {
+    let t = setup();
+    let event_ledger = t.e.ledger().sequence() + 500;
+    let id = t.client.ticket_escrow(
+        &t.depositor,
+        &t.beneficiary,
+        &t.token,
+        &700,
+        &event_ledger,
+        &make_memo(&t.e, b"ticket-uuid-001"),
+    );
+    t.client.release_escrow(&t.beneficiary, &id);
+    let tc = soroban_sdk::token::Client::new(&t.e, &t.token);
+    assert_eq!(tc.balance(&t.beneficiary), 700);
+}
+
 // ── #175: Memo field ──────────────────────────────────────────────────────────
 
 #[test]

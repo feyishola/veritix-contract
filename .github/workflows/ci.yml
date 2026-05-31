@@ -23,6 +23,12 @@ jobs:
         run: make build
       - name: Test
         run: make test
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --locked
+      - name: Coverage (min 80%)
+        run: |
+          cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+          cargo llvm-cov --all-features --workspace --fail-under-lines 80
       - name: Clippy
         run: cargo clippy --all -- -D warnings
       - name: Rustfmt

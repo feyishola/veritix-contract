@@ -1,5 +1,7 @@
 # Veritix Pay
 
+![Coverage](https://img.shields.io/badge/coverage-llvm--cov%20(80%25%20min)-blue)
+
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 ![Built With Rust](https://img.shields.io/badge/Built%20With-Rust-orange.svg)
 ![Network: Stellar / Soroban](https://img.shields.io/badge/Network-Stellar%20%2F%20Soroban-7b5ea7.svg)
