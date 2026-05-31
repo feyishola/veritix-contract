@@ -440,11 +440,23 @@ fn test_split_count_increments_on_create() {
 }
 
 #[test]
+fn test_create_split_with_escrow_returns_one_id_per_recipient() {
 fn test_create_split_with_memo_stores_memo() {
     let e = setup_env();
     let contract_id = e.register_contract(None, VeritixToken);
     let sender = Address::generate(&e);
     let r1 = Address::generate(&e);
+    let r2 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 1000);
+        let recipients = make_recipients(&e, &[(r1.clone(), 5000), (r2.clone(), 5000)]);
+        let ids = crate::splitter::create_split_with_escrow(
+            &e, sender.clone(), recipients, 1000, 1000,
+        );
+        assert_eq!(ids.len(), 2);
+        // Both IDs must be distinct
+        assert_ne!(ids.get(0).unwrap(), ids.get(1).unwrap());
 
     e.as_contract(&contract_id, || {
         crate::balance::receive_balance(&e, sender.clone(), 500);
