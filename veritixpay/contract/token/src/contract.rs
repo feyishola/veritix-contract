@@ -5,6 +5,8 @@ use crate::balance::{
     spend_balance,
 };
 use crate::dispute::{
+    get_dispute as dispute_get, get_disputes_by_resolver, open_dispute, resolve_dispute,
+    DisputeRecord,
     get_dispute as dispute_get, get_open_disputes, open_dispute, resolve_dispute, DisputeRecord,
 };
 use crate::escrow::{
@@ -38,6 +40,8 @@ impl VeritixToken {
         if has_admin(&e) { panic!("already initialized"); }
     pub fn initialize(e: Env, admin: Address, name: String, symbol: String, decimal: u32) {
         if has_admin(&e) { panic!("already initialized"); }
+    pub fn initialize(e: Env, admin: Address, name: String, symbol: String, decimal: u32) {
+        if has_admin(&e) { panic!("already initialized"); }
     // --- Admin & metadata ---
 
     pub fn initialize(e: Env, admin: Address, name: String, symbol: String, decimal: u32) {
@@ -52,6 +56,10 @@ impl VeritixToken {
     }
 
     pub fn set_admin(e: Env, new_admin: Address) { transfer_admin(&e, new_admin); }
+
+    pub fn clawback(e: Env, admin: Address, from: Address, amount: i128) {
+        check_admin(&e, &admin); require_positive_amount(amount);
+        spend_balance(&e, from.clone(), amount); decrease_supply(&e, amount);
 
     pub fn clawback(e: Env, admin: Address, from: Address, amount: i128) {
         check_admin(&e, &admin); require_positive_amount(amount);
@@ -76,6 +84,9 @@ impl VeritixToken {
         let admin = read_admin(&e); check_admin(&e, &admin); unfreeze_account(&e, admin, target);
     }
 
+    pub fn mint(e: Env, admin: Address, to: Address, amount: i128) {
+        check_admin(&e, &admin); require_positive_amount(amount); require_not_frozen_account(&e, &to);
+        receive_balance(&e, to.clone(), amount); increase_supply(&e, amount);
     pub fn mint(e: Env, admin: Address, to: Address, amount: i128) {
         check_admin(&e, &admin); require_positive_amount(amount); require_not_frozen_account(&e, &to);
         receive_balance(&e, to.clone(), amount); increase_supply(&e, amount);
@@ -113,6 +124,8 @@ impl VeritixToken {
         spend_balance(&e, from.clone(), amount); receive_balance(&e, to.clone(), amount);
         spend_allowance(&e, from.clone(), spender.clone(), amount);
         spend_balance(&e, from.clone(), amount); receive_balance(&e, to.clone(), amount);
+        spend_allowance(&e, from.clone(), spender.clone(), amount);
+        spend_balance(&e, from.clone(), amount); receive_balance(&e, to.clone(), amount);
         spender.require_auth();
         require_positive_amount(amount);
         require_not_frozen_account(&e, &from);
@@ -136,6 +149,8 @@ impl VeritixToken {
 
     pub fn burn_from(e: Env, spender: Address, from: Address, amount: i128) {
         spender.require_auth(); require_positive_amount(amount); require_not_frozen_account(&e, &from);
+        spend_allowance(&e, from.clone(), spender.clone(), amount);
+        spend_balance(&e, from.clone(), amount); decrease_supply(&e, amount);
         spend_allowance(&e, from.clone(), spender.clone(), amount);
         spend_balance(&e, from.clone(), amount); decrease_supply(&e, amount);
         spend_allowance(&e, from.clone(), spender.clone(), amount);
@@ -212,6 +227,9 @@ impl VeritixToken {
         resolve_dispute(&e, resolver, dispute_id, release_to_beneficiary)
     }
     pub fn get_dispute(e: Env, dispute_id: u32) -> DisputeRecord { dispute_get(&e, dispute_id) }
+        resolve_dispute(&e, resolver, dispute_id, release_to_beneficiary)
+    }
+    pub fn get_dispute(e: Env, dispute_id: u32) -> DisputeRecord { dispute_get(&e, dispute_id) }
 
     pub fn resolve_dispute(e: Env, resolver: Address, dispute_id: u32, release_to_beneficiary: bool) {
         resolve_dispute(&e, resolver, dispute_id, release_to_beneficiary)
@@ -225,6 +243,8 @@ impl VeritixToken {
         crate::storage_types::bump_instance(&e);
         crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::DisputeCount)
     }
+    pub fn get_disputes_by_resolver(e: Env, resolver: Address) -> Vec<u32> {
+        get_disputes_by_resolver(&e, resolver)
     pub fn get_open_disputes(e: Env) -> Vec<u32> { get_open_disputes(&e) }
 
     pub fn create_split(e: Env, sender: Address, recipients: Vec<SplitRecipient>, total_amount: i128) -> u32 {
@@ -248,13 +268,12 @@ impl VeritixToken {
         split_distribute(&e, caller, split_id)
     }
 
-    pub fn cancel_split(e: Env, caller: Address, split_id: u32) {
-        split_cancel(&e, caller, split_id)
+    pub fn create_split(e: Env, sender: Address, recipients: Vec<SplitRecipient>, total_amount: i128) -> u32 {
+        split_create(&e, sender, recipients, total_amount)
     }
-
-    pub fn get_split(e: Env, split_id: u32) -> SplitRecord {
-        split_get(&e, split_id)
-    }
+    pub fn distribute(e: Env, caller: Address, split_id: u32) { split_distribute(&e, caller, split_id) }
+    pub fn cancel_split(e: Env, caller: Address, split_id: u32) { split_cancel(&e, caller, split_id) }
+    pub fn get_split(e: Env, split_id: u32) -> SplitRecord { split_get(&e, split_id) }
 
     pub fn split_count(e: Env) -> u32 {
         crate::storage_types::bump_instance(&e);
@@ -262,6 +281,11 @@ impl VeritixToken {
     }
 
     pub fn setup_recurring(e: Env, payer: Address, payee: Address, amount: i128, interval: u32) -> u32 {
+        setup_recurring(&e, payer, payee, amount, interval)
+    }
+    pub fn execute_recurring(e: Env, recurring_id: u32) { execute_recurring(&e, recurring_id) }
+    pub fn cancel_recurring(e: Env, caller: Address, recurring_id: u32) { cancel_recurring(&e, caller, recurring_id) }
+    pub fn get_recurring(e: Env, recurring_id: u32) -> RecurringRecord { get_recurring(&e, recurring_id) }
         setup_recurring(&e, payer, payee, amount, interval)
     }
     pub fn execute_recurring(e: Env, recurring_id: u32) { execute_recurring(&e, recurring_id) }
