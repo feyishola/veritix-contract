@@ -329,3 +329,22 @@ fn test_dispute_count_increments_on_open() {
         assert_eq!(read_counter(&e, &DataKey::DisputeCount), 3);
     });
 }
+
+#[test]
+fn test_resolve_dispute_with_note_stores_note() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
+    let resolver = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone());
+        let note = soroban_sdk::Bytes::from_slice(&e, b"resolved: funds to beneficiary");
+        crate::dispute::resolve_dispute_with_note(
+            &e, resolver.clone(), dispute_id, true, note.clone(),
+        );
+        let record = get_dispute(&e, dispute_id);
+        assert_eq!(record.resolution_note, note);
+        assert_eq!(record.status, DisputeStatus::ResolvedForBeneficiary);
+    });
+}
