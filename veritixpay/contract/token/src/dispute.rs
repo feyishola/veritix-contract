@@ -4,10 +4,14 @@ use crate::storage_types::{
     increment_counter, write_persistent_record, DataKey, PERSISTENT_BUMP_AMOUNT,
     PERSISTENT_LIFETIME_THRESHOLD,
 };
+use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol};
 use soroban_sdk::{contracttype, symbol_short, vec, Address, Env, Symbol, Vec};
+
+pub const APPEAL_WINDOW: u32 = 1000;
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DisputeStatus { Open, ResolvedForBeneficiary, ResolvedForDepositor, Appealed }
 pub enum DisputeStatus { Open, ResolvedForBeneficiary, ResolvedForDepositor }
 
 #[contracttype]
@@ -15,6 +19,7 @@ pub enum DisputeStatus { Open, ResolvedForBeneficiary, ResolvedForDepositor }
 pub struct DisputeRecord {
     pub id: u32, pub escrow_id: u32, pub claimant: Address,
     pub resolver: Address, pub status: DisputeStatus,
+    pub appeal_deadline_ledger: u32,
 }
 
 fn append_dispute_history(e: &Env, escrow_id: u32, dispute_id: u32) {
@@ -58,6 +63,10 @@ pub fn open_dispute(e: &Env, claimant: Address, escrow_id: u32, resolver: Addres
     if resolver == escrow.depositor { panic!("InvalidResolver: resolver cannot be the depositor"); }
     if resolver == escrow.beneficiary { panic!("InvalidResolver: resolver cannot be the beneficiary"); }
     if e.storage().persistent().has(&DataKey::EscrowDispute(escrow_id)) { panic!("DisputeAlreadyOpen: An open dispute already exists for this escrow"); }
+    let count = increment_counter(e, &DataKey::DisputeCount);
+    let record = DisputeRecord {
+        id: count, escrow_id, claimant: claimant.clone(), resolver,
+        status: DisputeStatus::Open, appeal_deadline_ledger: 0,
     let count = increment_counter(e, &DataKey::DisputeCount);
     let record = DisputeRecord { id: count, escrow_id, claimant: claimant.clone(), resolver, status: DisputeStatus::Open };
         if v != id {
@@ -127,6 +136,28 @@ pub fn resolve_dispute(e: &Env, resolver: Address, dispute_id: u32, release_to_b
     if dispute.status != DisputeStatus::Open { panic!("AlreadyResolved: This dispute has already been resolved"); }
     if dispute.resolver != resolver { panic!("UnauthorizedResolver: Only the designated resolver can resolve this"); }
     settle_escrow_by_outcome(e, dispute.escrow_id, release_to_beneficiary);
+    dispute.status = if release_to_beneficiary { DisputeStatus::ResolvedForBeneficiary } else { DisputeStatus::ResolvedForDepositor };
+    dispute.appeal_deadline_ledger = e.ledger().sequence() + APPEAL_WINDOW;
+    e.storage().persistent().set(&dispute_key, &dispute);
+    e.storage().persistent().extend_ttl(&dispute_key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+    e.storage().persistent().remove(&DataKey::EscrowDispute(dispute.escrow_id));
+    e.events().publish((symbol_short!("dispute_resolved"), dispute_id, resolver), release_to_beneficiary);
+}
+
+pub fn appeal_dispute(e: &Env, appellant: Address, dispute_id: u32, new_resolver: Address) {
+    appellant.require_auth();
+    let dispute_key = DataKey::Dispute(dispute_id);
+    let mut dispute: DisputeRecord = e.storage().persistent().get(&dispute_key).expect("Dispute not found");
+    if dispute.status == DisputeStatus::Open || dispute.status == DisputeStatus::Appealed {
+        panic!("InvalidState: dispute must be resolved before appeal");
+    }
+    if e.ledger().sequence() > dispute.appeal_deadline_ledger { panic!("AppealWindowClosed: appeal window has passed"); }
+    if appellant != dispute.claimant { panic!("Unauthorized: only the claimant can appeal"); }
+    dispute.status = DisputeStatus::Appealed;
+    dispute.resolver = new_resolver.clone();
+    e.storage().persistent().set(&dispute_key, &dispute);
+    e.storage().persistent().extend_ttl(&dispute_key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+    e.events().publish((symbol_short!("dispute_appealed"), dispute_id, appellant), new_resolver);
     remove_resolver_dispute(e, &resolver, dispute_id);
     dispute.status = if release_to_beneficiary { DisputeStatus::ResolvedForBeneficiary } else { DisputeStatus::ResolvedForDepositor };
     e.storage().persistent().set(&dispute_key, &dispute);
