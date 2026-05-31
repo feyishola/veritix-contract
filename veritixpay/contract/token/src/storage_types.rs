@@ -42,6 +42,9 @@ pub enum DataKey {
     ResolverDisputes(Address),
     OpenDisputes,
     Freeze(Address),
+
+    // Global emergency pause flag.
+    Paused,
 }
 
 pub fn read_persistent_record<T>(e: &Env, key: &DataKey, missing_message: &'static str) -> T

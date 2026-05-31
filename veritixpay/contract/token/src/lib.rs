@@ -11,6 +11,7 @@ pub mod dispute;
 pub mod escrow;
 pub mod freeze;
 pub mod metadata;
+pub mod pause;
 pub mod recurring;
 pub mod splitter;
 pub mod storage_types;
@@ -45,6 +46,9 @@ mod batch_test;
 
 #[cfg(test)]
 mod dispute_test;
+
+#[cfg(test)]
+mod pause_test;
 
 #[cfg(test)]
 mod recurring_test;
