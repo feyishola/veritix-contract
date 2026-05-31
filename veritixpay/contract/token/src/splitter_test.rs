@@ -440,12 +440,45 @@ fn test_split_count_increments_on_create() {
 }
 
 #[test]
+fn test_bulk_distribute_distributes_all_splits() {
 fn test_create_split_with_escrow_returns_one_id_per_recipient() {
 fn test_create_split_with_memo_stores_memo() {
     let e = setup_env();
     let contract_id = e.register_contract(None, VeritixToken);
     let sender = Address::generate(&e);
     let r1 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 2000);
+        let recipients = make_recipients(&e, &[(r1.clone(), 10000)]);
+        let id1 = create_split(&e, sender.clone(), recipients.clone(), 1000);
+        let id2 = create_split(&e, sender.clone(), recipients, 1000);
+        let mut ids = soroban_sdk::Vec::new(&e);
+        ids.push_back(id1);
+        ids.push_back(id2);
+        crate::splitter::bulk_distribute(&e, sender.clone(), ids);
+        assert!(get_split(&e, id1).distributed);
+        assert!(get_split(&e, id2).distributed);
+        assert_eq!(read_balance(&e, r1.clone()), 2000);
+    });
+}
+
+#[test]
+#[should_panic(expected = "BulkLimit")]
+fn test_bulk_distribute_rejects_more_than_ten_ids() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 11_000);
+        let mut ids = soroban_sdk::Vec::new(&e);
+        for _ in 0..11 {
+            let recs = make_recipients(&e, &[(r1.clone(), 10000)]);
+            ids.push_back(create_split(&e, sender.clone(), recs, 1000));
+        }
+        crate::splitter::bulk_distribute(&e, sender.clone(), ids);
     let r2 = Address::generate(&e);
 
     e.as_contract(&contract_id, || {
