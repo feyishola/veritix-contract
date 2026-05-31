@@ -8,20 +8,21 @@ use soroban_sdk::{contracttype, symbol_short, vec, Address, Env, Symbol, Vec};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DisputeStatus {
-    Open,
-    ResolvedForBeneficiary,
-    ResolvedForDepositor,
-}
+pub enum DisputeStatus { Open, ResolvedForBeneficiary, ResolvedForDepositor }
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DisputeRecord {
-    pub id: u32,
-    pub escrow_id: u32,
-    pub claimant: Address,
-    pub resolver: Address,
-    pub status: DisputeStatus,
+    pub id: u32, pub escrow_id: u32, pub claimant: Address,
+    pub resolver: Address, pub status: DisputeStatus,
+}
+
+fn append_dispute_history(e: &Env, escrow_id: u32, dispute_id: u32) {
+    let key = DataKey::EscrowDisputeHistory(escrow_id);
+    let mut ids: Vec<u32> = e.storage().persistent().get(&key).unwrap_or_else(|| vec![e]);
+    ids.push_back(dispute_id);
+    e.storage().persistent().set(&key, &ids);
+    e.storage().persistent().extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
 }
 
 fn append_resolver_dispute(e: &Env, resolver: &Address, id: u32) {
@@ -52,6 +53,13 @@ pub fn open_dispute(e: &Env, claimant: Address, escrow_id: u32, resolver: Addres
     claimant.require_auth();
     let escrow = get_escrow(e, escrow_id);
     if escrow.released || escrow.refunded { panic!("InvalidState: Cannot open dispute on a settled escrow"); }
+    if claimant != escrow.depositor && claimant != escrow.beneficiary { panic!("Unauthorized: Only depositor or beneficiary can open a dispute"); }
+    if resolver == claimant { panic!("InvalidResolver: resolver cannot be the claimant"); }
+    if resolver == escrow.depositor { panic!("InvalidResolver: resolver cannot be the depositor"); }
+    if resolver == escrow.beneficiary { panic!("InvalidResolver: resolver cannot be the beneficiary"); }
+    if e.storage().persistent().has(&DataKey::EscrowDispute(escrow_id)) { panic!("DisputeAlreadyOpen: An open dispute already exists for this escrow"); }
+    let count = increment_counter(e, &DataKey::DisputeCount);
+    let record = DisputeRecord { id: count, escrow_id, claimant: claimant.clone(), resolver, status: DisputeStatus::Open };
         if v != id {
             updated.push_back(v);
         }
@@ -86,6 +94,7 @@ pub fn open_dispute(e: &Env, claimant: Address, escrow_id: u32, resolver: Addres
     e.storage().persistent().extend_ttl(&dispute_key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
     e.storage().persistent().set(&escrow_dispute_key, &count);
     e.storage().persistent().extend_ttl(&escrow_dispute_key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+    append_dispute_history(e, escrow_id, count);
     append_resolver_dispute(e, &resolver, count);
     append_open_dispute(e, count);
     e.events().publish((symbol_short!("dispute_opened"), escrow_id, claimant.clone()), ());
@@ -134,6 +143,8 @@ pub fn get_dispute(e: &Env, dispute_id: u32) -> DisputeRecord {
     record
 }
 
+pub fn get_dispute_history_for_escrow(e: &Env, escrow_id: u32) -> Vec<u32> {
+    let key = DataKey::EscrowDisputeHistory(escrow_id);
 pub fn get_disputes_by_resolver(e: &Env, resolver: Address) -> Vec<u32> {
     let key = DataKey::ResolverDisputes(resolver);
 pub fn get_open_disputes(e: &Env) -> Vec<u32> {
