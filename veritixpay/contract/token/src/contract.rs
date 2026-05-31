@@ -32,7 +32,7 @@ use crate::escrow::{
 };
 use crate::freeze::{freeze_account, is_frozen as read_frozen_status, unfreeze_account};
 use crate::metadata::{
-    read_decimal, read_name, read_symbol, validate_metadata, write_metadata, TokenMetadata,
+    read_decimal, read_name, read_symbol, update_metadata_fields, validate_metadata, write_metadata, TokenMetadata,
 };
 use crate::recurring::{
     amend_recurring, cancel_recurring, execute_recurring, get_recurring, setup_recurring,
@@ -47,7 +47,7 @@ use crate::splitter::{
     get_split as split_get, SplitRecord, SplitRecipient,
 };
 use crate::validation::{require_not_frozen_account, require_positive_amount};
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Bytes, Env, String, Vec};
 
 #[contract]
 pub struct VeritixToken;
@@ -57,6 +57,15 @@ pub struct VeritixToken;
 pub struct AdminInfo {
     pub admin: Address,
     pub paused: bool,
+}
+
+#[derive(Clone)]
+#[contracttype]
+pub struct TokenInfo {
+    pub name: String,
+    pub symbol: String,
+    pub decimal: u32,
+    pub total_supply: i128,
 }
 
 #[contractimpl]
@@ -336,6 +345,19 @@ impl VeritixToken {
         e.events().publish((symbol_short!("approve"), from, spender), amount);
     }
 
+    pub fn transfer_with_memo(e: Env, from: Address, to: Address, amount: i128, memo: Bytes) {
+        if memo.len() > 64 {
+            panic!("memo too long");
+        }
+        require_not_frozen_account(&e, &from);
+        require_positive_amount(amount);
+        from.require_auth();
+        spend_balance(&e, from.clone(), amount);
+        receive_balance(&e, to.clone(), amount);
+        e.events()
+            .publish((symbol_short!("tr_memo"), from, to), (amount, memo));
+    }
+
     // --- Read-only views ---
 
     /// Returns current total token supply.
@@ -387,6 +409,22 @@ impl VeritixToken {
     /// Returns token symbol.
     pub fn symbol(e: Env) -> String {
         read_symbol(&e)
+    }
+
+    pub fn token_info(e: Env) -> TokenInfo {
+        TokenInfo {
+            name: read_name(&e),
+            symbol: read_symbol(&e),
+            decimal: read_decimal(&e),
+            total_supply: read_total_supply(&e),
+        }
+    }
+
+    /// Admin can update only name/symbol; decimal remains immutable.
+    pub fn update_metadata(e: Env, admin: Address, name: Option<String>, symbol: Option<String>) {
+        check_admin(&e, &admin);
+        update_metadata_fields(&e, name, symbol);
+        e.events().publish((symbol_short!("meta_upd"), admin), ());
     }
 
     // --- Escrow ---

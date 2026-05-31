@@ -40,3 +40,16 @@ pub fn read_name(e: &Env) -> String {
 pub fn read_symbol(e: &Env) -> String {
     read_metadata(e).symbol
 }
+
+pub fn update_metadata_fields(e: &Env, name: Option<String>, symbol: Option<String>) {
+    let mut metadata = read_metadata(e);
+    if let Some(n) = name {
+        require_nonempty_string(&n, "name cannot be empty");
+        metadata.name = n;
+    }
+    if let Some(s) = symbol {
+        require_nonempty_string(&s, "symbol cannot be empty");
+        metadata.symbol = s;
+    }
+    write_metadata(e, metadata);
+}
