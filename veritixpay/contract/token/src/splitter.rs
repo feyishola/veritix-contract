@@ -2,7 +2,7 @@ use crate::balance::{receive_balance, spend_balance};
 use crate::escrow::EscrowRecord;
 use crate::storage_types::{
     increment_counter, read_persistent_record, write_persistent_record, DataKey,
-    PERSISTENT_BUMP_AMOUNT, PERSISTENT_LIFETIME_THRESHOLD,
+    SPLIT_BUMP_AMOUNT, SPLIT_LIFETIME_THRESHOLD,
 };
 use crate::validation::require_positive_amount;
 use soroban_sdk::{contracttype, symbol_short, Address, Bytes, Env, Vec};
@@ -98,8 +98,8 @@ pub fn distribute(e: &Env, caller: Address, split_id: u32) {
         .expect("split record not found");
     e.storage().persistent().extend_ttl(
         &DataKey::Split(split_id),
-        PERSISTENT_LIFETIME_THRESHOLD,
-        PERSISTENT_BUMP_AMOUNT,
+        SPLIT_LIFETIME_THRESHOLD,
+        SPLIT_BUMP_AMOUNT,
     );
 
     // 1. Rules: Caller must be sender, cannot distribute twice
@@ -166,8 +166,8 @@ pub fn cancel_split(e: &Env, caller: Address, split_id: u32) {
         .expect("split record not found");
     e.storage().persistent().extend_ttl(
         &DataKey::Split(split_id),
-        PERSISTENT_LIFETIME_THRESHOLD,
-        PERSISTENT_BUMP_AMOUNT,
+        SPLIT_LIFETIME_THRESHOLD,
+        SPLIT_BUMP_AMOUNT,
     );
 
     if record.sender != caller {

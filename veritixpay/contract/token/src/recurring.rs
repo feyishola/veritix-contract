@@ -1,3 +1,5 @@
+use crate::balance::{receive_balance, spend_balance};
+use crate::storage_types::{increment_counter, DataKey, RECURRING_BUMP_AMOUNT, RECURRING_LIFETIME_THRESHOLD};
 ﻿use crate::balance::{receive_balance, spend_balance};
 use crate::storage_types::{
     increment_counter, DataKey, PERSISTENT_BUMP_AMOUNT, PERSISTENT_LIFETIME_THRESHOLD,
@@ -60,6 +62,9 @@ pub fn setup_recurring(e: &Env, payer: Address, payee: Address, amount: i128, in
     };
     let key = DataKey::Recurring(count);
     e.storage().persistent().set(&key, &record);
+    e.storage()
+        .persistent()
+        .extend_ttl(&key, RECURRING_LIFETIME_THRESHOLD, RECURRING_BUMP_AMOUNT);
     e.storage().persistent().extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
     e.events().publish((symbol_short!("recur_setup"), payer.clone()), (payee, amount));
     count
@@ -116,6 +121,14 @@ pub fn pause_recurring(e: &Env, caller: Address, recurring_id: u32) {
 pub fn resume_recurring(e: &Env, caller: Address, recurring_id: u32) {
     caller.require_auth();
     let key = DataKey::Recurring(recurring_id);
+    let mut record: RecurringRecord = e
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| panic!("recurring record not found"));
+    e.storage()
+        .persistent()
+        .extend_ttl(&key, RECURRING_LIFETIME_THRESHOLD, RECURRING_BUMP_AMOUNT);
     let mut record: RecurringRecord = e.storage().persistent().get(&key).unwrap_or_else(|| panic!("recurring record not found"));
     if record.payer != caller {
         panic!("unauthorized");
@@ -158,6 +171,14 @@ pub fn execute_recurring(e: &Env, recurring_id: u32) {
         e.events().publish((symbol_short!("recur_completed"), recurring_id), record.execution_count);
     }
     e.storage().persistent().set(&key, &record);
+    e.storage()
+        .persistent()
+        .extend_ttl(&key, RECURRING_LIFETIME_THRESHOLD, RECURRING_BUMP_AMOUNT);
+
+    e.events().publish(
+        (symbol_short!("recurring_executed"), recurring_id),
+        record.amount,
+    );
     e.storage().persistent().extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
     e.events().publish((symbol_short!("recur_executed"), recurring_id), record.amount);
 }
@@ -172,12 +193,32 @@ pub fn cancel_recurring(e: &Env, caller: Address, recurring_id: u32) {
     }
     record.active = false;
     e.storage().persistent().set(&key, &record);
+    e.storage()
+        .persistent()
+        .extend_ttl(&key, RECURRING_LIFETIME_THRESHOLD, RECURRING_BUMP_AMOUNT);
+
+    e.events().publish(
+        (
+            symbol_short!("recurring_cancelled"),
+            recurring_id,
+            caller.clone(),
+        ),
+        (),
+    );
     e.storage().persistent().extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
     e.events().publish((symbol_short!("recur_cancelled"), recurring_id, caller.clone()), ());
 }
 
 pub fn get_recurring(e: &Env, recurring_id: u32) -> RecurringRecord {
     let key = DataKey::Recurring(recurring_id);
+    let record = e
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| panic!("recurring record not found"));
+    e.storage()
+        .persistent()
+        .extend_ttl(&key, RECURRING_LIFETIME_THRESHOLD, RECURRING_BUMP_AMOUNT);
     let record = e.storage().persistent().get(&key).unwrap_or_else(|| panic!("recurring record not found"));
     e.storage().persistent().extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
     record

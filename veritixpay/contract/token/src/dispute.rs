@@ -1,5 +1,6 @@
 ﻿use crate::balance::{receive_balance, spend_balance};
 use crate::escrow::get_escrow;
+use crate::storage_types::{increment_counter, write_persistent_record, DataKey, DISPUTE_BUMP_AMOUNT, DISPUTE_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT, PERSISTENT_LIFETIME_THRESHOLD};
 use crate::storage_types::{increment_counter, write_persistent_record, DataKey, PERSISTENT_BUMP_AMOUNT, PERSISTENT_LIFETIME_THRESHOLD};
 use soroban_sdk::{contracttype, symbol_short, Address, Bytes, Env, Symbol};
 use crate::storage_types::{
@@ -114,6 +115,9 @@ pub fn open_dispute(e: &Env, claimant: Address, escrow_id: u32, resolver: Addres
     let dispute_key = DataKey::Dispute(count);
     let escrow_dispute_key = DataKey::EscrowDispute(escrow_id);
     e.storage().persistent().set(&dispute_key, &record);
+    e.storage()
+        .persistent()
+        .extend_ttl(&dispute_key, DISPUTE_LIFETIME_THRESHOLD, DISPUTE_BUMP_AMOUNT);
     e.storage().persistent().extend_ttl(&dispute_key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
     e.storage().persistent().set(&escrow_dispute_key, &count);
     e.storage().persistent().extend_ttl(&escrow_dispute_key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
@@ -145,6 +149,23 @@ fn settle_escrow_by_outcome(e: &Env, escrow_id: u32, release_to_beneficiary: boo
 pub fn resolve_dispute(e: &Env, resolver: Address, dispute_id: u32, release_to_beneficiary: bool) {
     resolver.require_auth();
     let dispute_key = DataKey::Dispute(dispute_id);
+    let mut dispute: DisputeRecord = e
+        .storage()
+        .persistent()
+        .get(&dispute_key)
+        .expect("Dispute not found");
+    e.storage()
+        .persistent()
+        .extend_ttl(&dispute_key, DISPUTE_LIFETIME_THRESHOLD, DISPUTE_BUMP_AMOUNT);
+
+    if dispute.status != DisputeStatus::Open {
+        panic!("AlreadyResolved: This dispute has already been resolved");
+    }
+
+    if dispute.resolver != resolver {
+        panic!("UnauthorizedResolver: Only the designated resolver can resolve this");
+    }
+
     let mut dispute: DisputeRecord = e.storage().persistent().get(&dispute_key).expect("Dispute not found");
     e.storage().persistent().extend_ttl(&dispute_key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
     if dispute.status != DisputeStatus::Open { panic!("AlreadyResolved: This dispute has already been resolved"); }
@@ -209,6 +230,8 @@ pub fn resolve_dispute_with_note(
     record.resolution_note = note;
     e.storage()
         .persistent()
+        .extend_ttl(&key, DISPUTE_LIFETIME_THRESHOLD, DISPUTE_BUMP_AMOUNT);
+    record
         .set(&dispute_key, &record);
     e.storage()
         .persistent()
