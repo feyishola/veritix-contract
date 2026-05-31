@@ -1,13 +1,12 @@
-use soroban_sdk::{contracttype, Address, Env, IntoVal, TryFromVal, Val};
+﻿use soroban_sdk::{contracttype, Address, Env, IntoVal, TryFromVal, Val};
 
-pub const BALANCE_LIFETIME_THRESHOLD: u32 = 518400; // ~30 days
+pub const BALANCE_LIFETIME_THRESHOLD: u32 = 518400;
 pub const BALANCE_BUMP_AMOUNT: u32 = 535000;
-pub const ALLOWANCE_LIFETIME_THRESHOLD: u32 = 518400; // ~30 days
+pub const ALLOWANCE_LIFETIME_THRESHOLD: u32 = 518400;
 pub const ALLOWANCE_BUMP_AMOUNT: u32 = 535000;
 pub const INSTANCE_LIFETIME_THRESHOLD: u32 = 518400;
 pub const INSTANCE_BUMP_AMOUNT: u32 = 535000;
-/// Threshold and bump for long-lived persistent records (escrow, split, dispute, recurring, freeze).
-pub const PERSISTENT_LIFETIME_THRESHOLD: u32 = 518400; // ~30 days
+pub const PERSISTENT_LIFETIME_THRESHOLD: u32 = 518400;
 pub const PERSISTENT_BUMP_AMOUNT: u32 = 535000;
 
 #[derive(Clone)]
@@ -36,14 +35,14 @@ pub enum DataKey {
     Escrow(u32),
     RecurringCount,
     Recurring(u32),
+    PayerRecurrings(Address),
     SplitCount,
     Split(u32),
     DisputeCount,
     Dispute(u32),
-    // Tracks the active dispute ID for a given escrow (None = no open dispute).
     EscrowDispute(u32),
-
-    // Stores per-address freeze status.
+    ResolverDisputes(Address),
+    OpenDisputes,
     Freeze(Address),
 }
 
@@ -68,8 +67,6 @@ where
     storage.extend_ttl(key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
 }
 
-/// Bumps the instance storage TTL. Call this on any entrypoint that reads or
-/// writes instance-stored data (admin, metadata, counters, total supply).
 pub fn bump_instance(e: &Env) {
     e.storage()
         .instance()
