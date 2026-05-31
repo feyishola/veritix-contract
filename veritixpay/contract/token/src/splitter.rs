@@ -1,3 +1,7 @@
+//! Splitter module.
+//! Implements BPS-based multi-recipient distributions with deterministic last-recipient dust handling.
+//! Distribution is caller-authenticated by sender to avoid unauthorized payout triggers.
+
 use crate::balance::{receive_balance, spend_balance};
 use crate::escrow::EscrowRecord;
 use crate::storage_types::{

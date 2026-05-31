@@ -198,6 +198,37 @@ Before marking your PR ready for review, confirm all of the following:
 - [ ] `make fmt` has been run (no formatting diffs)
 - [ ] New logic has at least one test covering the happy path
 - [ ] Error and edge cases are tested where practical
+- [ ] `cargo clippy --all -- -D warnings` is clean
+- [ ] New/updated modules include `//!` module-level docs
+
+## Contract Contributor Conventions
+
+### Build and test commands
+- `make preflight`
+- `make build`
+- `make test`
+
+### Adding a new module
+1. Create `src/<module>.rs`.
+2. Add `pub mod <module>;` in `src/lib.rs`.
+3. Wire public entrypoints from `contract.rs` when exposed.
+4. Add/update tests and ensure module is included under `#[cfg(test)]` if split test files are used.
+
+### Storage conventions
+- Use instance storage for global config and counters.
+- Use persistent storage for account/payment state.
+- Extend TTL on important reads/writes with module-appropriate constants.
+
+### Auth conventions
+- Use `require_auth` for user-authorized actions.
+- Use `check_admin` for admin-gated actions.
+
+### Event conventions
+- Use short symbols (`symbol_short!`) for event names.
+- Keep topic/data structure deterministic and stable for indexers.
+
+### Panic test conventions
+- Use `#[should_panic(expected = \"...\")]` when asserting deterministic panic paths.
 - [ ] No new `unwrap()` calls on untrusted or external data
 - [ ] `storage_types.rs` updated if new storage keys were added
 - [ ] `lib.rs` updated if a new module was added

@@ -1,3 +1,7 @@
+//! Escrow lifecycle module.
+//! Manages escrow create/release/refund/admin-settle state transitions.
+//! Contract balance represents escrowed funds held in custody until settlement.
+
 use crate::admin::check_admin;
 use crate::balance::{receive_balance, spend_balance};
 use crate::storage_types::{
