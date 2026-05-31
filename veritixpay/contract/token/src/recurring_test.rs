@@ -384,4 +384,18 @@ mod recurring_tests {
             assert_eq!(read_counter(&e, &DataKey::RecurringCount), 3);
         });
     }
+
+    #[test]
+    #[should_panic(expected = "InvalidInterval")]
+    fn test_setup_recurring_zero_interval_panics() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let payer = Address::generate(&e);
+        let payee = Address::generate(&e);
+
+        e.as_contract(&contract_id, || {
+            crate::balance::receive_balance(&e, payer.clone(), 500);
+            setup_recurring(&e, payer.clone(), payee.clone(), 500, 0);
+        });
+    }
 }
