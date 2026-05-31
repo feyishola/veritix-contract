@@ -29,7 +29,7 @@ fn append_payer_index(e: &Env, payer: &Address, id: u32) {
 pub fn setup_recurring(e: &Env, payer: Address, payee: Address, amount: i128, interval: u32) -> u32 {
     require_positive_amount(amount);
     if interval == 0 {
-        panic!("interval must be positive");
+        panic!("InvalidInterval: interval must be at least 1");
     }
     if payer == payee {
         panic!("InvalidRecurring: payer and payee cannot be the same address");
