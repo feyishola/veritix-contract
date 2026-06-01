@@ -32,6 +32,8 @@ mod recurring_tests {
         (payer, payee, id)
     }
 
+    // Ensures that creating a recurring payment where payer == payee is
+    // rejected — prevents degenerate self-payment schedules.
     #[test]
     #[should_panic(expected = "InvalidRecurring: payer and payee cannot be the same address")]
     fn test_setup_recurring_same_address_panics() {
@@ -45,6 +47,9 @@ mod recurring_tests {
         });
     }
 
+    // Verifies that setup_recurring stores a record with correct payer, payee,
+    // amount, interval, and active state. If this fails, recurring payment
+    // setup is broken.
     #[test]
     fn test_setup_stores_record() {
         let e = setup_env();
@@ -61,6 +66,8 @@ mod recurring_tests {
         });
     }
 
+    // Happy-path execute: advances ledger past the interval and verifies that
+    // funds move from payer to payee correctly.
     #[test]
     fn test_execute_transfers_funds() {
         let e = setup_env();
@@ -76,6 +83,8 @@ mod recurring_tests {
         });
     }
 
+    // Ensures that executing a recurring payment before the interval has
+    // elapsed panics — prevents early withdrawal of funds.
     #[test]
     #[should_panic(expected = "interval has not elapsed")]
     fn test_execute_too_early_panics() {
@@ -90,6 +99,8 @@ mod recurring_tests {
         });
     }
 
+    // Verifies that cancelling a recurring payment deactivates the record
+    // and prevents future executions.
     #[test]
     fn test_cancel_deactivates_record() {
         let e = setup_env();
@@ -103,6 +114,8 @@ mod recurring_tests {
         });
     }
 
+    // Ensures that only the payer can cancel a recurring payment — a third
+    // party hacker must be rejected with "unauthorized".
     #[test]
     #[should_panic(expected = "unauthorized")]
     fn test_cancel_unauthorized_panics() {
@@ -116,6 +129,8 @@ mod recurring_tests {
         });
     }
 
+    // Ensures that executing a cancelled recurring payment panics — prevents
+    // funds from being transferred after the payer has deactivated the plan.
     #[test]
     #[should_panic(expected = "recurring payment is not active")]
     fn test_execute_after_cancel_panics() {
@@ -130,6 +145,7 @@ mod recurring_tests {
         });
     }
 
+    // Ensures that creating a recurring payment with zero amount is rejected.
     #[test]
     #[should_panic(expected = "amount must be positive")]
     fn test_recurring_zero_amount_panics() {
@@ -142,6 +158,7 @@ mod recurring_tests {
         });
     }
 
+    // Ensures that creating a recurring payment with zero interval is rejected.
     #[test]
     #[should_panic(expected = "interval must be positive")]
     fn test_recurring_zero_interval_panics() {
@@ -155,6 +172,8 @@ mod recurring_tests {
         });
     }
 
+    // Verifies that setup_recurring requires the payee's authorization in
+    // addition to the payer's — both parties must consent to the schedule.
     #[test]
     fn test_recurring_payee_auth_required() {
         let e = Env::default();
@@ -172,6 +191,8 @@ mod recurring_tests {
         assert!(payee_authorized, "payee must authorize setup_recurring");
     }
 
+    // Ensures that execute_recurring panics when the payer has insufficient
+    // balance to cover the recurring amount.
     #[test]
     #[should_panic(expected = "InsufficientBalance")]
     fn test_execute_recurring_insufficient_balance_panics() {
@@ -187,6 +208,8 @@ mod recurring_tests {
         });
     }
 
+    // Verifies that a recurring payment can be executed multiple times as long
+    // as sufficient balance remains and intervals elapse between executions.
     #[test]
     fn test_multiple_executions() {
         let e = setup_env();
@@ -211,6 +234,8 @@ mod recurring_tests {
         });
     }
 
+    // Verifies that both payer and payee appear in the auths for
+    // setup_recurring, confirming the dual-authorization requirement.
     #[test]
     fn test_setup_recurring_requires_both_payer_and_payee_auth() {
         let e = Env::default();
@@ -253,6 +278,8 @@ mod recurring_tests {
         );
     }
 
+    // Ensures that executing a recurring payment preserves the supply invariant
+    // (sum of balances == total supply) before and after execution.
     #[test]
     fn test_recurring_execute_preserves_supply() {
         let e = setup_env();
@@ -286,6 +313,8 @@ mod recurring_tests {
 
     // --- Issue #162: Event emission tests ---
 
+    // Verifies that setup_recurring emits a single event with
+    // (recurring_setup, payer) topics and (payee, amount) as data.
     #[test]
     fn test_setup_recurring_emits_event() {
         let e = setup_env();
@@ -298,6 +327,8 @@ mod recurring_tests {
         assert_eq!(events.first().unwrap().0.len(), 2);
     }
 
+    // Verifies that execute_recurring emits a single event with
+    // (recurring_executed, recurring_id) topics and amount as data.
     #[test]
     fn test_execute_recurring_emits_event() {
         let e = setup_env();
@@ -318,6 +349,8 @@ mod recurring_tests {
         assert_eq!(events.first().unwrap().0.len(), 2);
     }
 
+    // Verifies that cancel_recurring emits a single event with
+    // (recurring_cancelled, recurring_id, caller) topics.
     #[test]
     fn test_cancel_recurring_emits_event() {
         let e = setup_env();
@@ -338,6 +371,7 @@ mod recurring_tests {
 
     // --- Recurring counter tests ---
 
+    // Ensures the recurring counter starts at zero before any payments are set up.
     #[test]
     fn test_recurring_count_starts_at_zero() {
         let e = setup_env();
@@ -349,6 +383,8 @@ mod recurring_tests {
         });
     }
 
+    // Verifies the recurring counter increments correctly with IDs 1, 2, 3
+    // across multiple setup calls — no ID gaps or collisions.
     #[test]
     fn test_recurring_count_increments_on_setup() {
         let e = setup_env();
@@ -385,6 +421,8 @@ mod recurring_tests {
         });
     }
 
+    // Ensures that creating a recurring payment with zero interval is rejected
+    // with "InvalidInterval" — matches the updated panic string convention.
     #[test]
     #[should_panic(expected = "InvalidInterval")]
     fn test_setup_recurring_zero_interval_panics() {

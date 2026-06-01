@@ -24,6 +24,9 @@ fn setup_escrow(e: &Env, contract_id: &Address) -> (Address, Address, u32) {
     (depositor, beneficiary, escrow_id)
 }
 
+// Verifies that open_dispute stores a record with correct escrow_id, claimant,
+// resolver, and initial Open status. If this fails, the dispute creation flow
+// is broken and no disputes can be filed.
 #[test]
 fn test_open_dispute_stores_record() {
     let e = setup_env();
@@ -41,6 +44,8 @@ fn test_open_dispute_stores_record() {
     });
 }
 
+// Happy-path: resolves dispute in favour of the beneficiary, verifying that
+// the escrow is released and funds are transferred to the beneficiary.
 #[test]
 fn test_resolve_dispute_for_beneficiary() {
     let e = setup_env();
@@ -62,6 +67,8 @@ fn test_resolve_dispute_for_beneficiary() {
     });
 }
 
+// Happy-path: resolves dispute in favour of the depositor, verifying that
+// the escrow is refunded and funds are returned to the depositor.
 #[test]
 fn test_resolve_dispute_for_depositor() {
     let e = setup_env();
@@ -83,6 +90,8 @@ fn test_resolve_dispute_for_depositor() {
     });
 }
 
+// Ensures that only the designated resolver can resolve a dispute — an
+// impostor caller must be rejected with "UnauthorizedResolver".
 #[test]
 #[should_panic(expected = "UnauthorizedResolver")]
 fn test_resolve_dispute_wrong_resolver_panics() {
@@ -98,6 +107,8 @@ fn test_resolve_dispute_wrong_resolver_panics() {
     });
 }
 
+// Ensures that resolving an already-resolved dispute panics — prevents
+// double resolution that could double-spend escrow funds.
 #[test]
 #[should_panic(expected = "AlreadyResolved")]
 fn test_double_resolve_panics() {
@@ -113,6 +124,8 @@ fn test_double_resolve_panics() {
     });
 }
 
+// Ensures that opening a dispute on an already-settled escrow (released or
+// refunded) is rejected with "InvalidState".
 #[test]
 #[should_panic(expected = "InvalidState")]
 fn test_open_dispute_on_settled_escrow_panics() {
@@ -127,6 +140,8 @@ fn test_open_dispute_on_settled_escrow_panics() {
     });
 }
 
+// Ensures that opening a second dispute on the same unresolved escrow panics
+// — prevents dispute spam on the same escrow.
 #[test]
 #[should_panic(expected = "DisputeAlreadyOpen")]
 fn test_duplicate_open_dispute_panics() {
@@ -142,6 +157,9 @@ fn test_duplicate_open_dispute_panics() {
     });
 }
 
+// Verifies that a new dispute can be opened on a different escrow after a
+// previous dispute has been resolved — the EscrowDispute pointer is cleared
+// on resolution, allowing subsequent disputes on other escrows.
 #[test]
 fn test_reopen_dispute_after_resolution() {
     let e = setup_env();
@@ -164,6 +182,8 @@ fn test_reopen_dispute_after_resolution() {
     });
 }
 
+// Ensures that the claimant cannot also be the resolver — a resolver must be
+// an impartial third party.
 #[test]
 #[should_panic(expected = "InvalidResolver: resolver cannot be the claimant")]
 fn test_open_dispute_rejects_claimant_as_resolver() {
@@ -176,6 +196,8 @@ fn test_open_dispute_rejects_claimant_as_resolver() {
     });
 }
 
+// Ensures that the depositor cannot be the resolver — prevents a conflict of
+// interest where the depositor resolves their own dispute.
 #[test]
 #[should_panic(expected = "InvalidResolver: resolver cannot be the depositor")]
 fn test_open_dispute_rejects_depositor_as_resolver() {
@@ -189,6 +211,8 @@ fn test_open_dispute_rejects_depositor_as_resolver() {
     });
 }
 
+// Ensures that the beneficiary cannot be the resolver — prevents a conflict of
+// interest where the beneficiary resolves their own dispute.
 #[test]
 #[should_panic(expected = "InvalidResolver: resolver cannot be the beneficiary")]
 fn test_open_dispute_rejects_beneficiary_as_resolver() {
@@ -204,6 +228,8 @@ fn test_open_dispute_rejects_beneficiary_as_resolver() {
 
 // --- Issue #162: Event emission tests ---
 
+// Ensures that a stranger (neither depositor nor beneficiary) cannot open a
+// dispute — only escrow participants have standing.
 #[test]
 #[should_panic(expected = "Unauthorized")]
 fn test_open_dispute_stranger_as_claimant_panics() {
@@ -218,6 +244,8 @@ fn test_open_dispute_stranger_as_claimant_panics() {
     });
 }
 
+// Ensures that the dispute counter does not skip IDs when a dispute call is
+// rejected — IDs from successful opens must be sequential (1, 2, 3).
 #[test]
 fn test_dispute_counter_does_not_skip_on_rejected_call() {
     // Verify that a rejected open_dispute call (duplicate) does not increment the counter.
@@ -241,6 +269,8 @@ fn test_dispute_counter_does_not_skip_on_rejected_call() {
 
 // --- Issue #162: Event emission tests ---
 
+// Verifies that open_dispute emits a single event with (dispute_opened,
+// escrow_id, claimant) topics.
 #[test]
 fn test_open_dispute_emits_event() {
     let e = setup_env();
@@ -261,6 +291,8 @@ fn test_open_dispute_emits_event() {
     assert_eq!(events.first().unwrap().0.len(), 3);
 }
 
+// Verifies that resolve_dispute emits events (escrow_refunded and
+// dispute_resolved) with correct topic structure.
 #[test]
 fn test_resolve_dispute_emits_event() {
     let e = setup_env();
@@ -287,6 +319,7 @@ fn test_resolve_dispute_emits_event() {
 
 // --- Dispute counter tests ---
 
+// Ensures the dispute counter starts at zero before any disputes are opened.
 #[test]
 fn test_dispute_count_starts_at_zero() {
     let e = setup_env();
@@ -298,6 +331,8 @@ fn test_dispute_count_starts_at_zero() {
     });
 }
 
+// Verifies the dispute counter increments correctly with dispute IDs 1, 2, 3
+// across multiple escrows — no ID gaps or collisions.
 #[test]
 fn test_dispute_count_increments_on_open() {
     let e = setup_env();
@@ -330,6 +365,8 @@ fn test_dispute_count_increments_on_open() {
     });
 }
 
+// Verifies that resolve_dispute_with_note stores the note on the dispute record
+// and correctly updates the status to ResolvedForBeneficiary.
 #[test]
 fn test_resolve_dispute_with_note_stores_note() {
     let e = setup_env();
