@@ -2,7 +2,8 @@ use soroban_sdk::{testutils::{Address as _, Events as _}, Address, Env};
 
 use crate::balance::read_balance;
 use crate::contract::VeritixToken;
-use crate::dispute::{get_dispute, open_dispute, resolve_dispute, DisputeStatus};
+use crate::dispute::{expire_dispute, get_dispute, open_dispute, resolve_dispute, DisputeStatus};
+use soroban_sdk::Bytes;
 use crate::escrow::{create_escrow, get_escrow};
 use crate::storage_types::{read_counter, DataKey};
 
@@ -32,7 +33,7 @@ fn test_open_dispute_stores_record() {
     let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
 
     e.as_contract(&contract_id, || {
-        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone());
+        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
         let record = get_dispute(&e, dispute_id);
         assert_eq!(record.escrow_id, escrow_id);
         assert_eq!(record.claimant, depositor);
@@ -49,7 +50,7 @@ fn test_resolve_dispute_for_beneficiary() {
     let (_depositor, beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
 
     e.as_contract(&contract_id, || {
-        let dispute_id = open_dispute(&e, beneficiary.clone(), escrow_id, resolver.clone());
+        let dispute_id = open_dispute(&e, beneficiary.clone(), escrow_id, resolver.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
         resolve_dispute(&e, resolver.clone(), dispute_id, true);
 
         let record = get_dispute(&e, dispute_id);
@@ -70,7 +71,7 @@ fn test_resolve_dispute_for_depositor() {
     let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
 
     e.as_contract(&contract_id, || {
-        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone());
+        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
         resolve_dispute(&e, resolver.clone(), dispute_id, false);
 
         let record = get_dispute(&e, dispute_id);
@@ -93,7 +94,7 @@ fn test_resolve_dispute_wrong_resolver_panics() {
     let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
 
     e.as_contract(&contract_id, || {
-        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone());
+        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
         resolve_dispute(&e, impostor.clone(), dispute_id, true);
     });
 }
@@ -107,7 +108,7 @@ fn test_double_resolve_panics() {
     let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
 
     e.as_contract(&contract_id, || {
-        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone());
+        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
         resolve_dispute(&e, resolver.clone(), dispute_id, true);
         resolve_dispute(&e, resolver.clone(), dispute_id, false);
     });
@@ -123,7 +124,7 @@ fn test_open_dispute_on_settled_escrow_panics() {
 
     e.as_contract(&contract_id, || {
         crate::escrow::release_escrow(&e, beneficiary.clone(), escrow_id);
-        open_dispute(&e, beneficiary.clone(), escrow_id, resolver.clone());
+        open_dispute(&e, beneficiary.clone(), escrow_id, resolver.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
     });
 }
 
@@ -136,9 +137,9 @@ fn test_duplicate_open_dispute_panics() {
     let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
 
     e.as_contract(&contract_id, || {
-        open_dispute(&e, depositor.clone(), escrow_id, resolver.clone());
+        open_dispute(&e, depositor.clone(), escrow_id, resolver.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
         // Second open on the same unresolved escrow must fail.
-        open_dispute(&e, depositor.clone(), escrow_id, resolver.clone());
+        open_dispute(&e, depositor.clone(), escrow_id, resolver.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
     });
 }
 
@@ -153,12 +154,12 @@ fn test_reopen_dispute_after_resolution() {
     let (depositor2, _beneficiary2, escrow_id2) = setup_escrow(&e, &contract_id);
 
     e.as_contract(&contract_id, || {
-        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone());
+        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
         resolve_dispute(&e, resolver.clone(), dispute_id, false);
 
         // After resolution the EscrowDispute pointer is cleared; a new dispute on a
         // different (still-open) escrow must succeed.
-        let new_id = open_dispute(&e, depositor2.clone(), escrow_id2, resolver.clone());
+        let new_id = open_dispute(&e, depositor2.clone(), escrow_id2, resolver.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
         let record = get_dispute(&e, new_id);
         assert_eq!(record.status, DisputeStatus::Open);
     });
@@ -172,7 +173,7 @@ fn test_open_dispute_rejects_claimant_as_resolver() {
     let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
 
     e.as_contract(&contract_id, || {
-        open_dispute(&e, depositor.clone(), escrow_id, depositor.clone());
+        open_dispute(&e, depositor.clone(), escrow_id, depositor.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
     });
 }
 
@@ -185,7 +186,7 @@ fn test_open_dispute_rejects_depositor_as_resolver() {
 
     e.as_contract(&contract_id, || {
         let escrow = get_escrow(&e, escrow_id);
-        open_dispute(&e, beneficiary.clone(), escrow_id, escrow.depositor.clone());
+        open_dispute(&e, beneficiary.clone(), escrow_id, escrow.depositor.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
     });
 }
 
@@ -198,7 +199,7 @@ fn test_open_dispute_rejects_beneficiary_as_resolver() {
 
     e.as_contract(&contract_id, || {
         let escrow = get_escrow(&e, escrow_id);
-        open_dispute(&e, depositor.clone(), escrow_id, escrow.beneficiary.clone());
+        open_dispute(&e, depositor.clone(), escrow_id, escrow.beneficiary.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
     });
 }
 
@@ -214,7 +215,7 @@ fn test_open_dispute_stranger_as_claimant_panics() {
     let (_depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
 
     e.as_contract(&contract_id, || {
-        open_dispute(&e, stranger.clone(), escrow_id, resolver.clone());
+        open_dispute(&e, stranger.clone(), escrow_id, resolver.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
     });
 }
 
@@ -230,11 +231,11 @@ fn test_dispute_counter_does_not_skip_on_rejected_call() {
 
     e.as_contract(&contract_id, || {
         // First dispute gets ID 1
-        let id1 = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone());
+        let id1 = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
         assert_eq!(id1, 1);
 
         // Second dispute on a different escrow gets ID 2 (no gap)
-        let id2 = open_dispute(&e, depositor2.clone(), escrow_id2, resolver.clone());
+        let id2 = open_dispute(&e, depositor2.clone(), escrow_id2, resolver.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
         assert_eq!(id2, 2);
     });
 }
@@ -252,7 +253,7 @@ fn test_open_dispute_emits_event() {
     let _ = e.events().all();
 
     e.as_contract(&contract_id, || {
-        open_dispute(&e, depositor.clone(), escrow_id, resolver.clone());
+        open_dispute(&e, depositor.clone(), escrow_id, resolver.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
     });
 
     let events = e.events().all();
@@ -269,7 +270,7 @@ fn test_resolve_dispute_emits_event() {
     let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
 
     e.as_contract(&contract_id, || {
-        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone());
+        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
 
         // Clear prior events
         let _ = e.events().all();
@@ -314,17 +315,17 @@ fn test_dispute_count_increments_on_open() {
         assert_eq!(read_counter(&e, &DataKey::DisputeCount), 0);
 
         // Open first dispute
-        let dispute_id = open_dispute(&e, depositor1.clone(), escrow_id1, resolver.clone());
+        let dispute_id = open_dispute(&e, depositor1.clone(), escrow_id1, resolver.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
         assert_eq!(dispute_id, 1);
         assert_eq!(read_counter(&e, &DataKey::DisputeCount), 1);
 
         // Open second dispute
-        let dispute_id = open_dispute(&e, depositor2.clone(), escrow_id2, resolver.clone());
+        let dispute_id = open_dispute(&e, depositor2.clone(), escrow_id2, resolver.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
         assert_eq!(dispute_id, 2);
         assert_eq!(read_counter(&e, &DataKey::DisputeCount), 2);
 
         // Open third dispute
-        let dispute_id = open_dispute(&e, depositor3.clone(), escrow_id3, resolver.clone());
+        let dispute_id = open_dispute(&e, depositor3.clone(), escrow_id3, resolver.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
         assert_eq!(dispute_id, 3);
         assert_eq!(read_counter(&e, &DataKey::DisputeCount), 3);
     });
@@ -338,7 +339,7 @@ fn test_resolve_dispute_with_note_stores_note() {
     let resolver = Address::generate(&e);
 
     e.as_contract(&contract_id, || {
-        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone());
+        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
         let note = soroban_sdk::Bytes::from_slice(&e, b"resolved: funds to beneficiary");
         crate::dispute::resolve_dispute_with_note(
             &e, resolver.clone(), dispute_id, true, note.clone(),
@@ -346,5 +347,81 @@ fn test_resolve_dispute_with_note_stores_note() {
         let record = get_dispute(&e, dispute_id);
         assert_eq!(record.resolution_note, note);
         assert_eq!(record.status, DisputeStatus::ResolvedForBeneficiary);
+    });
+}
+
+#[test]
+fn test_open_dispute_stores_evidence() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver = Address::generate(&e);
+    let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
+
+    e.as_contract(&contract_id, || {
+        let evidence = Bytes::from_slice(&e, b"invoice-ref-42");
+        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone(), evidence.clone(), e.ledger().sequence() + 500);
+        let record = get_dispute(&e, dispute_id);
+        assert_eq!(record.evidence, evidence);
+        assert_eq!(record.expiry_ledger, e.ledger().sequence() + 500);
+    });
+}
+
+#[test]
+#[should_panic(expected = "EvidenceTooLong")]
+fn test_open_dispute_evidence_too_long_panics() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver = Address::generate(&e);
+    let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
+
+    e.as_contract(&contract_id, || {
+        let evidence = Bytes::from_slice(&e, &[0u8; 129]);
+        open_dispute(&e, depositor.clone(), escrow_id, resolver.clone(), evidence, e.ledger().sequence() + 500);
+    });
+}
+
+#[test]
+#[should_panic(expected = "InvalidExpiry")]
+fn test_open_dispute_past_expiry_panics() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver = Address::generate(&e);
+    let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
+
+    e.as_contract(&contract_id, || {
+        open_dispute(&e, depositor.clone(), escrow_id, resolver.clone(), Bytes::new(&e), e.ledger().sequence());
+    });
+}
+
+#[test]
+fn test_expire_dispute_auto_resolves_for_depositor() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver = Address::generate(&e);
+    let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
+
+    e.as_contract(&contract_id, || {
+        let expiry = e.ledger().sequence() + 100;
+        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone(), Bytes::new(&e), expiry);
+        e.ledger().set_sequence_number(expiry + 1);
+        expire_dispute(&e, dispute_id);
+        let record = get_dispute(&e, dispute_id);
+        assert_eq!(record.status, DisputeStatus::Expired);
+        assert_eq!(read_balance(&e, depositor.clone()), 1_000);
+    });
+}
+
+#[test]
+#[should_panic(expected = "NotExpired")]
+fn test_expire_dispute_before_expiry_panics() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver = Address::generate(&e);
+    let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
+
+    e.as_contract(&contract_id, || {
+        let expiry = e.ledger().sequence() + 100;
+        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone(), Bytes::new(&e), expiry);
+        expire_dispute(&e, dispute_id);
     });
 }
