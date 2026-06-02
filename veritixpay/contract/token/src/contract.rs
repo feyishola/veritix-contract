@@ -3,6 +3,7 @@ use crate::allowance::{get_allowances_for_spender, read_allowance, spend_allowan
 use crate::balance::{decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance, spend_balance};
 use crate::batch::{clawback_batch, freeze_batch, unfreeze_batch};
 use crate::dispute::{
+    expire_dispute, get_dispute as dispute_get, get_dispute_history_for_escrow,
     appeal_dispute, get_dispute as dispute_get, get_dispute_history_for_escrow,
     get_open_disputes, open_dispute, resolve_dispute, DisputeRecord,
 };
@@ -73,6 +74,8 @@ impl VeritixToken {
         decrease_supply(&e, amount);
         e.events().publish((symbol_short!("clawback"), admin), (from, amount));
     }
+    pub fn clawback_batch(e: Env, admin: Address, targets: Vec<(Address, i128)>) { check_admin(&e, &admin); clawback_batch(&e, admin, targets); }
+    }
     pub fn clawback_batch(e: Env, admin: Address, targets: Vec<(Address, i128)>) {
         check_admin(&e, &admin);
         clawback_batch(&e, admin, targets);
@@ -121,6 +124,27 @@ impl VeritixToken {
     pub fn update_metadata(e: Env, admin: Address, name: Option<String>, symbol: Option<String>) {
         check_admin(&e, &admin);
         update_metadata_fields(&e, name, symbol);
+        e.events().publish((symbol_short!("meta_upd"), admin), ());
+    }
+    pub fn freeze(e: Env, target: Address) { let admin = read_admin(&e); check_admin(&e, &admin); freeze_account(&e, admin, target); }
+    pub fn unfreeze(e: Env, target: Address) { let admin = read_admin(&e); check_admin(&e, &admin); unfreeze_account(&e, admin, target); }
+    pub fn freeze_batch(e: Env, admin: Address, targets: Vec<Address>) { check_admin(&e, &admin); freeze_batch(&e, admin, targets); }
+    pub fn unfreeze_batch(e: Env, admin: Address, targets: Vec<Address>) { check_admin(&e, &admin); unfreeze_batch(&e, admin, targets); }
+
+    // --- Views ---
+    pub fn total_supply(e: Env) -> i128 { read_total_supply(&e) }
+    pub fn balance(e: Env, id: Address) -> i128 { read_balance(&e, id) }
+    pub fn allowance(e: Env, from: Address, spender: Address) -> i128 { read_allowance(&e, from, spender).amount }
+    pub fn is_frozen(e: Env, id: Address) -> bool { read_frozen_status(&e, &id) }
+    pub fn decimals(e: Env) -> u32 { read_decimal(&e) }
+    pub fn name(e: Env) -> String { read_name(&e) }
+    pub fn symbol(e: Env) -> String { read_symbol(&e) }
+    pub fn get_allowances_for_spender(e: Env, spender: Address) -> Vec<(Address, i128)> { get_allowances_for_spender(&e, spender) }
+    pub fn token_info(e: Env) -> TokenInfo {
+        TokenInfo { name: read_name(&e), symbol: read_symbol(&e), decimal: read_decimal(&e), total_supply: read_total_supply(&e) }
+    }
+    pub fn update_metadata(e: Env, admin: Address, name: Option<String>, symbol: Option<String>) {
+        check_admin(&e, &admin); update_metadata_fields(&e, name, symbol);
         e.events().publish((symbol_short!("meta_upd"), admin), ());
     }
 
