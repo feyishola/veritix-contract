@@ -39,6 +39,14 @@ stellar --version
 
 **First-time setup:** Run `make preflight` from the `veritixpay/contract/token/` directory to verify all required tools are installed. This will give you fast, actionable feedback if anything is missing.
 
+**Pre-commit hooks:** Install the git pre-commit hook to automatically run `cargo fmt` and `cargo clippy` before every commit:
+
+```bash
+make install-hooks
+```
+
+This will copy `.hooks/pre-commit` to `.git/hooks/pre-commit` and mark it executable.
+
 ---
 
 ## Getting the Code

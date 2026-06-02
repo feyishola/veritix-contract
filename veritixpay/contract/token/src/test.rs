@@ -39,6 +39,8 @@ fn assert_supply_matches(client: &VeritixTokenClient<'_>, tracked_addresses: &[A
     assert_eq!(client.total_supply(), tracked_sum);
 }
 
+// Verifies that initialize correctly sets admin, name, symbol, and decimals.
+// If this test fails, the core token deployment flow is broken.
 #[test]
 fn test_initialize() {
     let (env, admin, _user) = setup();
@@ -53,6 +55,8 @@ fn test_initialize() {
     assert_eq!(client.decimals(), 7u32);
 }
 
+// Ensures that calling initialize twice panics — the contract must be
+// single-initialize to prevent admin re-assignment after deployment.
 #[test]
 #[should_panic]
 fn test_initialize_twice_panics() {
@@ -64,6 +68,7 @@ fn test_initialize_twice_panics() {
     initialize_client(&client, &env, &admin, 7);
 }
 
+// Validates that decimal > 18 is rejected, enforcing the max precision limit.
 #[test]
 #[should_panic]
 fn test_initialize_rejects_decimal_above_eighteen() {
@@ -74,6 +79,8 @@ fn test_initialize_rejects_decimal_above_eighteen() {
     initialize_client(&client, &env, &admin, 19);
 }
 
+// Verifies that an empty name string is rejected during initialization.
+// Prevents deployment of a token without a display name.
 #[test]
 #[should_panic]
 fn test_initialize_rejects_empty_name() {
@@ -89,6 +96,7 @@ fn test_initialize_rejects_empty_name() {
     );
 }
 
+// Verifies that an empty symbol string is rejected during initialization.
 #[test]
 #[should_panic]
 fn test_initialize_rejects_empty_symbol() {
@@ -104,6 +112,8 @@ fn test_initialize_rejects_empty_symbol() {
     );
 }
 
+// Ensures that initialize requires the admin to sign — without mock auths
+// the call must panic because admin.require_auth() fails.
 #[test]
 #[should_panic]
 fn test_initialize_requires_admin_authorization() {
@@ -113,6 +123,8 @@ fn test_initialize_requires_admin_authorization() {
     initialize_client(&client, &env, &admin, 7);
 }
 
+// Happy-path mint: admin mints 1000 tokens to a user; balance and total supply
+// should both reflect the minted amount. If this fails, token issuance is broken.
 #[test]
 fn test_mint() {
     let (env, admin, user) = setup();
@@ -126,6 +138,8 @@ fn test_mint() {
     assert_eq!(client.total_supply(), 1000i128);
 }
 
+// Ensures that a non-admin caller cannot mint tokens — the authorization check
+// must reject the call even when the caller provides their own auth.
 #[test]
 #[should_panic]
 fn test_mint_unauthorized_panics() {
@@ -139,6 +153,8 @@ fn test_mint_unauthorized_panics() {
     client.mint(&user, &user, &1000i128);
 }
 
+// Happy-path burn: user burns 500 of their 1000 tokens; balance and total
+// supply decrease accordingly. Tests the basic deflationary path.
 #[test]
 fn test_burn() {
     let (env, admin, user) = setup();
@@ -154,6 +170,8 @@ fn test_burn() {
     assert_eq!(client.total_supply(), 500i128);
 }
 
+// Ensures that burning more than the user's balance panics — prevents
+// negative balances and unauthorized supply reduction.
 #[test]
 #[should_panic]
 fn test_burn_insufficient_panics() {
@@ -167,6 +185,8 @@ fn test_burn_insufficient_panics() {
     client.burn(&user, &200i128);
 }
 
+// Happy-path transfer: sender sends 400 tokens to a receiver; balances update
+// correctly and total supply stays unchanged.
 #[test]
 fn test_transfer() {
     let (env, admin, user) = setup();
@@ -183,6 +203,8 @@ fn test_transfer() {
     assert_eq!(client.total_supply(), 1000i128);
 }
 
+// Ensures that transferring without sufficient balance panics — prevents
+// creation of tokens out of thin air via transfer.
 #[test]
 #[should_panic]
 fn test_transfer_insufficient_balance_panics() {
@@ -196,6 +218,8 @@ fn test_transfer_insufficient_balance_panics() {
     client.transfer(&user, &receiver, &100i128);
 }
 
+// Happy-path transfer_from: spender uses allowance to transfer tokens from
+// owner to a receiver; allowance is reduced by the spent amount.
 #[test]
 fn test_transfer_from() {
     let (env, admin, user) = setup();
@@ -213,6 +237,8 @@ fn test_transfer_from() {
     assert_eq!(client.allowance(&user, &spender), 200i128);
 }
 
+// Verifies that the token_info view returns a combined struct of metadata and
+// total supply in a single call, useful for frontend display.
 #[test]
 fn test_token_info_combines_metadata_and_supply() {
     let (env, admin, user) = setup();
@@ -227,6 +253,8 @@ fn test_token_info_combines_metadata_and_supply() {
     assert_eq!(info.total_supply, 123);
 }
 
+// Verifies that transfer_with_memo moves funds correctly and attaches a memo
+// tag for off-chain correlation (e.g., ticket UUID).
 #[test]
 fn test_transfer_with_memo_moves_funds() {
     let (env, admin, user) = setup();
@@ -241,6 +269,8 @@ fn test_transfer_with_memo_moves_funds() {
     assert_eq!(client.balance(&receiver), 250);
 }
 
+// Tests the full approve + transfer_from cycle: owner approves spender, spender
+// transfers a portion, and the allowance decreases accordingly.
 #[test]
 fn test_approve_and_spend_allowance() {
     let (env, admin, user) = setup();
@@ -257,6 +287,8 @@ fn test_approve_and_spend_allowance() {
     assert_eq!(client.allowance(&user, &spender), 200i128);
 }
 
+// Ensures that spending the full allowance reduces it to zero, confirming
+// that allowance is not stuck at a non-zero value after full consumption.
 #[test]
 fn test_transfer_from_spends_full_allowance_and_clears_it() {
     let (env, admin, user) = setup();
@@ -274,6 +306,8 @@ fn test_transfer_from_spends_full_allowance_and_clears_it() {
     assert_eq!(client.allowance(&user, &spender), 0i128);
 }
 
+// Verifies that an allowance with expiration_ledger equal to the current ledger
+// is still valid for spending — the boundary condition where expiry == current.
 #[test]
 fn test_allowance_expiration_equal_current_ledger_is_valid_for_current_ledger() {
     let (env, admin, user) = setup();
@@ -292,6 +326,8 @@ fn test_allowance_expiration_equal_current_ledger_is_valid_for_current_ledger() 
     assert_eq!(client.allowance(&user, &spender), 0i128);
 }
 
+// Ensures that an approval with an expiration_ledger strictly in the past is
+// rejected — prevents setting allowances that are already expired.
 #[test]
 #[should_panic]
 fn test_approve_with_past_expiration_panics() {
@@ -308,6 +344,8 @@ fn test_approve_with_past_expiration_panics() {
     client.approve(&user, &spender, &400i128, &0u32);
 }
 
+// Verifies that an expired allowance cannot be spent — even if it was valid
+// when created, advancing the ledger past expiration makes it unusable.
 #[test]
 #[should_panic]
 fn test_expired_allowance_panics() {
@@ -323,6 +361,8 @@ fn test_expired_allowance_panics() {
     client.transfer_from(&spender, &user, &spender, &100i128);
 }
 
+// End-to-end test of admin rotation, freeze, unfreeze, and their storage
+// representations — verifies that the views reflect on-chain state changes.
 #[test]
 fn test_admin_and_freeze_views_follow_state_changes() {
     let (env, admin, user) = setup();
@@ -375,6 +415,8 @@ fn test_admin_and_freeze_views_follow_state_changes() {
     );
 }
 
+// Verifies that clawback reduces the target's balance and total supply by the
+// clawed-back amount — confirms deflationary admin recovery works.
 #[test]
 fn test_clawback_reduces_total_supply() {
     let (env, admin, user) = setup();
@@ -393,6 +435,8 @@ fn test_clawback_reduces_total_supply() {
     assert_eq!(client.total_supply(), 700i128);
 }
 
+// Smoke test covering the full admin lifecycle: set_admin, freeze, unfreeze,
+// and clawback in sequence — validates that all admin operations work together.
 #[test]
 fn test_admin_freeze_and_clawback_smoke_via_client() {
     let (env, admin, user) = setup();
@@ -417,6 +461,9 @@ fn test_admin_freeze_and_clawback_smoke_via_client() {
     assert_eq!(client.total_supply(), 750i128);
 }
 
+// Critical invariant: after each core token operation (mint, transfer, burn,
+// clawback), the sum of all tracked balances must equal total_supply.
+// If this fails, tokens are being created or destroyed silently.
 #[test]
 fn test_core_token_operations_preserve_supply_invariant() {
     let (env, admin, user) = setup();
@@ -440,6 +487,8 @@ fn test_core_token_operations_preserve_supply_invariant() {
     assert_supply_matches(&client, &tracked);
 }
 
+// Ensures that a non-admin caller cannot invoke clawback — authorization is
+// enforced even if the caller has sufficient balance.
 #[test]
 #[should_panic]
 fn test_clawback_unauthorized_panics() {
@@ -454,6 +503,9 @@ fn test_clawback_unauthorized_panics() {
     client.clawback(&user, &user, &300i128);
 }
 
+// Verifies that a frozen account can still receive tokens via escrow release.
+// Freeze prevents sending but not receiving — this prevents deadlock where
+// escrowed funds become stuck forever.
 #[test]
 fn test_frozen_account_can_receive_from_escrow_release() {
     let (env, admin, user) = setup();
@@ -476,6 +528,8 @@ fn test_frozen_account_can_receive_from_escrow_release() {
     assert_eq!(client.balance(&beneficiary), 1_000i128);
 }
 
+// Verifies that freeze and unfreeze emit the correct events with proper topic
+// structure and payload, enabling off-chain indexers to track freeze state.
 #[test]
 fn test_freeze_and_unfreeze_emit_observable_events() {
     let (env, admin, user) = setup();
@@ -518,6 +572,8 @@ fn test_freeze_and_unfreeze_emit_observable_events() {
     assert_eq!(unfreeze_event.1.into_val(&env), admin.into());
 }
 
+// Ensures that only the admin can freeze accounts — a non-admin caller must
+// be rejected even with mock auths cleared.
 #[test]
 #[should_panic]
 fn test_freeze_by_non_admin_panics() {
@@ -533,6 +589,8 @@ fn test_freeze_by_non_admin_panics() {
     let _ = user; // suppress unused warning
 }
 
+// Ensures that a spender cannot transfer_from more than the approved allowance
+// — the allowance cap is enforced even if the owner's balance is sufficient.
 #[test]
 #[should_panic]
 fn test_transfer_from_over_allowance_panics() {
@@ -555,6 +613,8 @@ fn test_transfer_from_over_allowance_panics() {
 // NOTE: freeze/unfreeze currently emit no events — this is a known gap.
 // The functions below test the events that ARE emitted.
 
+// Verifies that set_admin emits a single event with (admin_set, old_admin)
+// topic and new_admin as data.
 #[test]
 fn test_set_admin_emits_event() {
     let (env, admin, _user) = setup();
