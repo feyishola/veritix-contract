@@ -18,6 +18,7 @@ pub trait VeriTixPayTrait {
     fn refund_escrow(e: Env, caller: Address, escrow_id: u32);
     fn get_escrows_by_depositor(e: Env, depositor: Address) -> Vec<u32>;
     fn get_escrows_by_beneficiary(e: Env, beneficiary: Address) -> Vec<u32>;
+    fn escrowed_total(e: Env) -> i128;
 
     // ── Multi-escrow ──────────────────────────────────────────────────────────
     fn create_multi_escrow(
@@ -87,6 +88,10 @@ impl VeriTixPayTrait for VeriTixPay {
 
     fn get_escrows_by_beneficiary(e: Env, beneficiary: Address) -> Vec<u32> {
         escrow::get_escrows_by_beneficiary(e, beneficiary)
+    }
+
+    fn escrowed_total(e: Env) -> i128 {
+        escrow::get_escrowed_total(&e)
     }
 
     fn create_multi_escrow(
