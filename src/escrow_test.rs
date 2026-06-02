@@ -58,6 +58,32 @@ fn test_create_indexes_both_parties() {
 }
 
 #[test]
+fn test_escrowed_total_tracks_active_amounts() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    assert_eq!(t.client.escrowed_total(), 0);
+
+    let first = t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &1_000, &expiry, &empty_memo(&t.e),
+    );
+    assert_eq!(first, 0);
+    assert_eq!(t.client.escrowed_total(), 1_000);
+
+    let second = t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &500, &expiry, &empty_memo(&t.e),
+    );
+    assert_eq!(second, 1);
+    assert_eq!(t.client.escrowed_total(), 1_500);
+
+    t.client.release_escrow(&t.depositor, &first);
+    assert_eq!(t.client.escrowed_total(), 500);
+
+    t.client.refund_escrow(&t.depositor, &second);
+    assert_eq!(t.client.escrowed_total(), 0);
+}
+
+#[test]
 fn test_beneficiary_index_accumulates() {
     let t = setup();
     let expiry = t.e.ledger().sequence() + 1000;
