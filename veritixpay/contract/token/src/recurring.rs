@@ -1,4 +1,5 @@
 //! Recurring payment module.
+//! Supports schedule setup plus permissionless "crank" execution when intervals elapse.
 
 use crate::balance::{receive_balance, spend_balance};
 use crate::storage_types::{increment_counter, DataKey, PERSISTENT_BUMP_AMOUNT, PERSISTENT_LIFETIME_THRESHOLD};
@@ -129,6 +130,8 @@ pub fn get_recurring_by_payer(e: &Env, payer: Address) -> Vec<u32> {
     e.storage().persistent().get(&key).unwrap_or_else(|| vec![e])
 }
 
+/// Returns the next ledger at which this recurring payment becomes eligible.
+/// Returns `u32::MAX` if the record is inactive or paused (sentinel = never).
 pub fn get_next_execution_ledger(e: &Env, recurring_id: u32) -> u32 {
     match e.storage().persistent().get::<DataKey, RecurringRecord>(&DataKey::Recurring(recurring_id)) {
         Some(r) if r.active && !r.paused => r.last_charged_ledger + r.interval,
@@ -136,6 +139,7 @@ pub fn get_next_execution_ledger(e: &Env, recurring_id: u32) -> u32 {
     }
 }
 
+/// Returns `true` when the recurring payment can be executed right now.
 pub fn is_executable(e: &Env, recurring_id: u32) -> bool {
     match e.storage().persistent().get::<DataKey, RecurringRecord>(&DataKey::Recurring(recurring_id)) {
         Some(r) => r.active && !r.paused && e.ledger().sequence() >= r.last_charged_ledger + r.interval,

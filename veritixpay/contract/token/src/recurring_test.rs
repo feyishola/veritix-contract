@@ -7,7 +7,7 @@ mod recurring_tests {
 
     use crate::balance::read_balance;
     use crate::contract::{VeritixToken, VeritixTokenClient};
-    use crate::recurring::{cancel_recurring, execute_recurring, get_recurring, setup_recurring};
+    use crate::recurring::{cancel_recurring, execute_recurring, get_next_execution_ledger, get_recurring, is_executable, pause_recurring, setup_recurring};
     use crate::storage_types::{read_counter, DataKey};
 
     fn setup_env() -> Env {
@@ -396,6 +396,80 @@ mod recurring_tests {
         e.as_contract(&contract_id, || {
             crate::balance::receive_balance(&e, payer.clone(), 500);
             setup_recurring(&e, payer.clone(), payee.clone(), 500, 0);
+        });
+    }
+
+    #[test]
+    fn test_get_next_execution_ledger_active() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let (_, _, id) = fund_and_setup(&e, &contract_id, 500, 100);
+        e.as_contract(&contract_id, || {
+            let r = get_recurring(&e, id);
+            let next = get_next_execution_ledger(&e, id);
+            assert_eq!(next, r.last_charged_ledger + 100);
+        });
+    }
+
+    #[test]
+    fn test_get_next_execution_ledger_paused_returns_max() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let (payer, _, id) = fund_and_setup(&e, &contract_id, 500, 100);
+        e.as_contract(&contract_id, || {
+            pause_recurring(&e, payer.clone(), id);
+            assert_eq!(get_next_execution_ledger(&e, id), u32::MAX);
+        });
+    }
+
+    #[test]
+    fn test_get_next_execution_ledger_missing_returns_max() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        e.as_contract(&contract_id, || {
+            assert_eq!(get_next_execution_ledger(&e, 999), u32::MAX);
+        });
+    }
+
+    #[test]
+    fn test_is_executable_active_and_due() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let (_, _, id) = fund_and_setup(&e, &contract_id, 500, 100);
+        e.as_contract(&contract_id, || {
+            e.ledger().set_sequence_number(e.ledger().sequence() + 101);
+            assert!(is_executable(&e, id));
+        });
+    }
+
+    #[test]
+    fn test_is_executable_active_not_due() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let (_, _, id) = fund_and_setup(&e, &contract_id, 500, 100);
+        e.as_contract(&contract_id, || {
+            assert!(!is_executable(&e, id));
+        });
+    }
+
+    #[test]
+    fn test_is_executable_paused() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let (payer, _, id) = fund_and_setup(&e, &contract_id, 500, 100);
+        e.as_contract(&contract_id, || {
+            pause_recurring(&e, payer.clone(), id);
+            e.ledger().set_sequence_number(e.ledger().sequence() + 200);
+            assert!(!is_executable(&e, id));
+        });
+    }
+
+    #[test]
+    fn test_is_executable_missing() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        e.as_contract(&contract_id, || {
+            assert!(!is_executable(&e, 999));
         });
     }
 }
