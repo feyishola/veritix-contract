@@ -1,9 +1,7 @@
 //! Shared storage model.
 //! Defines instance-vs-persistent key ownership, value shapes, and TTL bump policy constants.
-//! Instance storage is for contract-global config/counters; persistent storage is for user/payment records.
 
 use soroban_sdk::{contracttype, Address, Env, IntoVal, TryFromVal, Val};
-﻿use soroban_sdk::{contracttype, Address, Env, IntoVal, TryFromVal, Val};
 
 pub const BALANCE_LIFETIME_THRESHOLD: u32 = 518400;
 pub const BALANCE_BUMP_AMOUNT: u32 = 535000;
@@ -33,10 +31,6 @@ pub struct AllowanceValue { pub amount: i128, pub expiration_ledger: u32 }
 #[derive(Clone)]
 #[contracttype]
 pub enum DataKey {
-    Admin, Allowance(AllowanceDataKey), Balance(Address), Metadata, TotalSupply,
-    EscrowCount, Escrow(u32), RecurringCount, Recurring(u32),
-    SplitCount, Split(u32), DisputeCount, Dispute(u32),
-    EscrowDispute(u32), EscrowDisputeHistory(u32), Freeze(Address),
     Admin,
     Allowance(AllowanceDataKey),
     SpenderAllowances(Address),
@@ -53,11 +47,10 @@ pub enum DataKey {
     DisputeCount,
     Dispute(u32),
     EscrowDispute(u32),
+    EscrowDisputeHistory(u32),
     ResolverDisputes(Address),
     OpenDisputes,
     Freeze(Address),
-
-    // Global emergency pause flag.
     Paused,
 }
 
@@ -83,7 +76,6 @@ pub fn bump_instance(e: &Env) {
 pub fn read_counter(e: &Env, key: &DataKey) -> u32 { e.storage().instance().get(key).unwrap_or(0) }
 
 pub fn increment_counter(e: &Env, key: &DataKey) -> u32 {
-    // Keep instance storage alive whenever counters are mutated to prevent ID reset/collision.
     bump_instance(e);
     let next = read_counter(e, key) + 1;
     e.storage().instance().set(key, &next);
