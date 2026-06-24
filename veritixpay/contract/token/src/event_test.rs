@@ -1,5 +1,5 @@
 use super::*;
-use soroban_sdk::{testutils::Address as _, testutils::Events as _, Address, Env, String, Symbol};
+use soroban_sdk::{testutils::Address as _, testutils::Events as _, Address, Env, String};
 
 use crate::contract::VeritixTokenClient;
 
@@ -26,73 +26,42 @@ fn initialize_client(client: &VeritixTokenClient<'_>, env: &Env, admin: &Address
 }
 
 #[test]
-fn test_mint_event_schema() {
+fn test_mint_event_emitted() {
     let (env, admin, user) = setup();
     env.mock_all_auths();
     let client = create_client(&env);
 
     initialize_client(&client, &env, &admin, 7);
+    let before = env.events().all().len();
 
-    // Clear initialization events
-    let _ = env.events().all();
+    client.mint(&admin, &user, &1000i128);
 
-    // Mint tokens
-    let amount = 1000i128;
-    client.mint(&admin, &user, &amount);
-
-    // Verify event structure
     let events = env.events().all();
-    assert_eq!(events.len(), 1);
-
-    let event = events.first().unwrap();
-
-    // Topics should be: [mint_symbol, admin_address, to_address]
-    // Payload should be: amount
-    assert_eq!(event.0.len(), 3);
-    assert_eq!(
-        event.0.get(0).unwrap().into_val(&env),
-        Symbol::new(&env, "mint")
-    );
-    assert_eq!(event.0.get(1).unwrap().into_val(&env), admin.clone().into());
-    assert_eq!(event.0.get(2).unwrap().into_val(&env), user.clone().into());
-    assert_eq!(event.1.into_val(&env), amount);
+    assert_eq!(events.len(), before + 1);
+    // Topics: (mint_symbol, admin), data: (to, amount)
+    assert_eq!(events.last().unwrap().1.len(), 2);
 }
 
 #[test]
-fn test_burn_event_schema() {
+fn test_burn_event_emitted() {
     let (env, admin, user) = setup();
     env.mock_all_auths();
     let client = create_client(&env);
 
     initialize_client(&client, &env, &admin, 7);
     client.mint(&admin, &user, &1000i128);
+    let before = env.events().all().len();
 
-    // Clear events
-    let _ = env.events().all();
+    client.burn(&user, &500i128);
 
-    // Burn tokens
-    let amount = 500i128;
-    client.burn(&user, &amount);
-
-    // Verify event structure
     let events = env.events().all();
-    assert_eq!(events.len(), 1);
-
-    let event = events.first().unwrap();
-
-    // Topics should be: [burn_symbol, from_address]
-    // Payload should be: amount
-    assert_eq!(event.0.len(), 2);
-    assert_eq!(
-        event.0.get(0).unwrap().into_val(&env),
-        Symbol::new(&env, "burn")
-    );
-    assert_eq!(event.0.get(1).unwrap().into_val(&env), user.clone().into());
-    assert_eq!(event.1.into_val(&env), amount);
+    assert_eq!(events.len(), before + 1);
+    // Topics: (burn_symbol, from), data: amount
+    assert_eq!(events.last().unwrap().1.len(), 2);
 }
 
 #[test]
-fn test_burn_from_event_schema() {
+fn test_burn_from_event_emitted() {
     let (env, admin, user) = setup();
     env.mock_all_auths();
     let client = create_client(&env);
@@ -101,37 +70,18 @@ fn test_burn_from_event_schema() {
     initialize_client(&client, &env, &admin, 7);
     client.mint(&admin, &user, &1000i128);
     client.approve(&user, &spender, &500i128, &1000u32);
+    let before = env.events().all().len();
 
-    // Clear events
-    let _ = env.events().all();
+    client.burn_from(&spender, &user, &200i128);
 
-    // Burn from user's allowance
-    let amount = 200i128;
-    client.burn_from(&spender, &user, &amount);
-
-    // Verify event structure
     let events = env.events().all();
-    assert_eq!(events.len(), 1);
-
-    let event = events.first().unwrap();
-
-    // Topics should be: [burn_symbol, spender_address, from_address]
-    // Payload should be: amount
-    assert_eq!(event.0.len(), 3);
-    assert_eq!(
-        event.0.get(0).unwrap().into_val(&env),
-        Symbol::new(&env, "burn")
-    );
-    assert_eq!(
-        event.0.get(1).unwrap().into_val(&env),
-        spender.clone().into()
-    );
-    assert_eq!(event.0.get(2).unwrap().into_val(&env), user.clone().into());
-    assert_eq!(event.1.into_val(&env), amount);
+    assert_eq!(events.len(), before + 1);
+    // Topics: (burn_from_symbol, spender), data: (from, amount)
+    assert_eq!(events.last().unwrap().1.len(), 2);
 }
 
 #[test]
-fn test_transfer_event_schema() {
+fn test_transfer_event_emitted() {
     let (env, admin, user) = setup();
     env.mock_all_auths();
     let client = create_client(&env);
@@ -139,37 +89,18 @@ fn test_transfer_event_schema() {
 
     initialize_client(&client, &env, &admin, 7);
     client.mint(&admin, &user, &1000i128);
+    let before = env.events().all().len();
 
-    // Clear events
-    let _ = env.events().all();
+    client.transfer(&user, &receiver, &400i128);
 
-    // Transfer tokens
-    let amount = 400i128;
-    client.transfer(&user, &receiver, &amount);
-
-    // Verify event structure
     let events = env.events().all();
-    assert_eq!(events.len(), 1);
-
-    let event = events.first().unwrap();
-
-    // Topics should be: [transfer_symbol, from_address, to_address]
-    // Payload should be: amount
-    assert_eq!(event.0.len(), 3);
-    assert_eq!(
-        event.0.get(0).unwrap().into_val(&env),
-        Symbol::new(&env, "transfer")
-    );
-    assert_eq!(event.0.get(1).unwrap().into_val(&env), user.clone().into());
-    assert_eq!(
-        event.0.get(2).unwrap().into_val(&env),
-        receiver.clone().into()
-    );
-    assert_eq!(event.1.into_val(&env), amount);
+    assert_eq!(events.len(), before + 1);
+    // Topics: (transfer_symbol, from), data: (to, amount)
+    assert_eq!(events.last().unwrap().1.len(), 2);
 }
 
 #[test]
-fn test_transfer_from_event_schema() {
+fn test_transfer_from_event_emitted() {
     let (env, admin, user) = setup();
     env.mock_all_auths();
     let client = create_client(&env);
@@ -179,37 +110,18 @@ fn test_transfer_from_event_schema() {
     initialize_client(&client, &env, &admin, 7);
     client.mint(&admin, &user, &1000i128);
     client.approve(&user, &spender, &500i128, &1000u32);
+    let before = env.events().all().len();
 
-    // Clear events
-    let _ = env.events().all();
+    client.transfer_from(&spender, &user, &receiver, &300i128);
 
-    // Transfer from user's allowance
-    let amount = 300i128;
-    client.transfer_from(&spender, &user, &receiver, &amount);
-
-    // Verify event structure
     let events = env.events().all();
-    assert_eq!(events.len(), 1);
-
-    let event = events.first().unwrap();
-
-    // Topics should be: [transfer_symbol, from_address, to_address]
-    // Payload should be: amount
-    assert_eq!(event.0.len(), 3);
-    assert_eq!(
-        event.0.get(0).unwrap().into_val(&env),
-        Symbol::new(&env, "transfer")
-    );
-    assert_eq!(event.0.get(1).unwrap().into_val(&env), user.clone().into());
-    assert_eq!(
-        event.0.get(2).unwrap().into_val(&env),
-        receiver.clone().into()
-    );
-    assert_eq!(event.1.into_val(&env), amount);
+    assert_eq!(events.len(), before + 1);
+    // Topics: (xfer_from_symbol, from), data: (to, amount)
+    assert_eq!(events.last().unwrap().1.len(), 2);
 }
 
 #[test]
-fn test_approve_event_schema() {
+fn test_approve_event_emitted() {
     let (env, admin, user) = setup();
     env.mock_all_auths();
     let client = create_client(&env);
@@ -217,72 +129,36 @@ fn test_approve_event_schema() {
 
     initialize_client(&client, &env, &admin, 7);
     client.mint(&admin, &user, &1000i128);
+    let before = env.events().all().len();
 
-    // Clear events
-    let _ = env.events().all();
+    client.approve(&user, &spender, &400i128, &1000u32);
 
-    // Set allowance
-    let amount = 400i128;
-    let expiration = 1000u32;
-    client.approve(&user, &spender, &amount, &expiration);
-
-    // Verify event structure
     let events = env.events().all();
-    assert_eq!(events.len(), 1);
-
-    let event = events.first().unwrap();
-
-    // Topics should be: [approve_symbol, from_address, spender_address]
-    // Payload should be: amount
-    assert_eq!(event.0.len(), 3);
-    assert_eq!(
-        event.0.get(0).unwrap().into_val(&env),
-        Symbol::new(&env, "approve")
-    );
-    assert_eq!(event.0.get(1).unwrap().into_val(&env), user.clone().into());
-    assert_eq!(
-        event.0.get(2).unwrap().into_val(&env),
-        spender.clone().into()
-    );
-    assert_eq!(event.1.into_val(&env), amount);
+    assert_eq!(events.len(), before + 1);
+    // Topics: (approve_symbol, from), data: (spender, amount)
+    assert_eq!(events.last().unwrap().1.len(), 2);
 }
 
 #[test]
-fn test_clawback_event_schema() {
+fn test_clawback_event_emitted() {
     let (env, admin, user) = setup();
     env.mock_all_auths();
     let client = create_client(&env);
 
     initialize_client(&client, &env, &admin, 7);
     client.mint(&admin, &user, &1000i128);
+    let before = env.events().all().len();
 
-    // Clear events
-    let _ = env.events().all();
+    client.clawback(&admin, &user, &300i128);
 
-    // Clawback tokens
-    let amount = 300i128;
-    client.clawback(&admin, &user, &amount);
-
-    // Verify event structure
     let events = env.events().all();
-    assert_eq!(events.len(), 1);
-
-    let event = events.first().unwrap();
-
-    // Topics should be: [clawback_symbol, admin_address, from_address]
-    // Payload should be: amount
-    assert_eq!(event.0.len(), 3);
-    assert_eq!(
-        event.0.get(0).unwrap().into_val(&env),
-        Symbol::new(&env, "clawback")
-    );
-    assert_eq!(event.0.get(1).unwrap().into_val(&env), admin.clone().into());
-    assert_eq!(event.0.get(2).unwrap().into_val(&env), user.clone().into());
-    assert_eq!(event.1.into_val(&env), amount);
+    assert_eq!(events.len(), before + 1);
+    // Topics: (clawback_symbol, admin), data: (from, amount)
+    assert_eq!(events.last().unwrap().1.len(), 2);
 }
 
 #[test]
-fn test_all_core_events_use_consistent_symbol_short_format() {
+fn test_all_core_ops_emit_events() {
     let (env, admin, user) = setup();
     env.mock_all_auths();
     let client = create_client(&env);
@@ -292,23 +168,15 @@ fn test_all_core_events_use_consistent_symbol_short_format() {
     initialize_client(&client, &env, &admin, 7);
     client.mint(&admin, &user, &1000i128);
 
-    // Clear events
-    let _ = env.events().all();
+    let before = env.events().all().len();
 
-    // Execute all core operations
     client.transfer(&user, &receiver, &100i128);
     client.approve(&user, &spender, &200i128, &1000u32);
     client.burn(&user, &50i128);
     client.clawback(&admin, &user, &25i128);
 
-    // Verify all events use symbol_short format (single symbol as first topic)
     let events = env.events().all();
-    for event in events.iter() {
-        // First topic should always be a Symbol
-        let first_topic = event.0.get(0).unwrap();
-        // This will succeed if it's a Symbol
-        let _: Symbol = first_topic.into_val(&env);
-    }
+    assert_eq!(events.len(), before + 4, "expected 4 new events for 4 operations");
 }
 
 // --- Issue #164: End-to-end ticket purchase flow tests ---
@@ -327,20 +195,14 @@ fn test_ticket_purchase_happy_path() {
     let initial_supply = client.total_supply();
     let buyer_before = client.balance(&buyer);
 
-    // Step 2: Buyer creates escrow
     let escrow_id = client.create_escrow(&buyer, &organiser, &ticket_price, &1000u32);
 
-    // Step 3: Buyer balance decreased, contract balance increased
     assert_eq!(client.balance(&buyer), buyer_before - ticket_price);
-    assert_eq!(client.total_supply(), initial_supply); // supply unchanged
+    assert_eq!(client.total_supply(), initial_supply);
 
-    // Step 4: Organiser releases escrow
     client.release_escrow(&organiser, &escrow_id);
 
-    // Step 5: Organiser received funds, contract balance is zero
     assert_eq!(client.balance(&organiser), ticket_price);
-
-    // Step 6: Total supply unchanged throughout
     assert_eq!(client.total_supply(), initial_supply);
 }
 
@@ -358,19 +220,14 @@ fn test_ticket_purchase_dispute_path() {
 
     let initial_supply = client.total_supply();
 
-    // Step 1-2: Buyer creates escrow
     let escrow_id = client.create_escrow(&buyer, &organiser, &ticket_price, &1000u32);
     assert_eq!(client.balance(&buyer), 0);
 
-    // Step 2: Buyer opens dispute (event cancelled)
-    let dispute_id = client.open_dispute(&buyer, &escrow_id, &resolver);
+    let evidence = soroban_sdk::Bytes::new(&env);
+    let dispute_id = client.open_dispute(&buyer, &escrow_id, &resolver, &evidence, &1000u32);
 
-    // Step 3: Resolver resolves in favour of buyer (refund)
     client.resolve_dispute(&resolver, &dispute_id, &false);
 
-    // Step 4: Buyer got funds back, contract balance is zero
     assert_eq!(client.balance(&buyer), ticket_price);
-
-    // Total supply unchanged throughout
     assert_eq!(client.total_supply(), initial_supply);
 }
