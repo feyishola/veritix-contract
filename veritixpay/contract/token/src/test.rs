@@ -428,3 +428,70 @@ fn test_frozen_account_can_receive_from_escrow_release() {
 
     assert_eq!(client.balance(&beneficiary), 1_000i128);
 }
+
+#[test]
+fn test_burn_from_spends_allowance_and_reduces_supply() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let spender = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1_000i128);
+    client.approve(&user, &spender, &600i128, &1_000u32);
+
+    client.burn_from(&spender, &user, &400i128);
+
+    assert_eq!(client.balance(&user), 600i128);
+    assert_eq!(client.total_supply(), 600i128);
+    assert_eq!(client.allowance(&user, &spender), 200i128);
+}
+
+#[test]
+fn test_burn_from_full_allowance_clears_it() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let spender = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &500i128);
+    client.approve(&user, &spender, &500i128, &1_000u32);
+
+    client.burn_from(&spender, &user, &500i128);
+
+    assert_eq!(client.balance(&user), 0i128);
+    assert_eq!(client.total_supply(), 0i128);
+    assert_eq!(client.allowance(&user, &spender), 0i128);
+}
+
+#[test]
+#[ignore = "Panics abort in this Soroban test configuration"]
+fn test_burn_from_insufficient_allowance_panics() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let spender = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1_000i128);
+    client.approve(&user, &spender, &100i128, &1_000u32);
+
+    client.burn_from(&spender, &user, &200i128);
+}
+
+#[test]
+#[ignore = "Panics abort in this Soroban test configuration"]
+fn test_burn_from_unauthorized_panics() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let spender = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1_000i128);
+    client.approve(&user, &spender, &500i128, &1_000u32);
+    env.set_auths(&[]);
+
+    client.burn_from(&spender, &user, &100i128);
+}

@@ -104,14 +104,13 @@ impl VeritixToken {
 
     /// Spender burns tokens from an account using their allowance.
     pub fn burn_from(e: Env, spender: Address, from: Address, amount: i128) {
-        require_not_frozen_account(&e, &from);
-        require_not_frozen_account(&e, &spender);
-        require_positive_amount(amount);
         spender.require_auth();
+        require_not_frozen_account(&e, &from);
+        require_positive_amount(amount);
         spend_allowance(&e, from.clone(), spender.clone(), amount);
         spend_balance(&e, from.clone(), amount);
         decrease_supply(&e, amount);
-        e.events().publish((symbol_short!("burn"), spender, from), amount);
+        e.events().publish((symbol_short!("burn_from"), spender), (from, amount));
     }
 
     // --- Transfers & allowance ---
