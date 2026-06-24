@@ -55,6 +55,31 @@ fn test_initialize() {
     assert_eq!(client.decimals(), 7u32);
 }
 
+// Verifies that initialize emits an `initialized` event with the admin, name, symbol, and decimals.
+#[test]
+fn test_initialize_emits_event() {
+    let (env, admin, _user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+
+    let _ = env.events().all();
+
+    initialize_client(&client, &env, &admin, 7);
+
+    let events = env.events().all();
+    assert_eq!(events.len(), 1);
+    let init_event = events.first().unwrap();
+    assert_eq!(init_event.0.len(), 2);
+    assert_eq!(
+        init_event.0.get(0).unwrap().into_val(&env),
+        soroban_sdk::Symbol::new(&env, "initialized")
+    );
+    assert_eq!(
+        init_event.0.get(1).unwrap().into_val(&env),
+        admin.into()
+    );
+}
+
 // Ensures that calling initialize twice panics — the contract must be
 // single-initialize to prevent admin re-assignment after deployment.
 #[test]

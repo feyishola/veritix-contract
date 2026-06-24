@@ -232,7 +232,7 @@ fn test_open_dispute_rejects_beneficiary_as_resolver() {
 // Ensures that a stranger (neither depositor nor beneficiary) cannot open a
 // dispute — only escrow participants have standing.
 #[test]
-#[should_panic(expected = "Unauthorized")]
+#[should_panic(expected = "Unauthorized: only escrow parties can open a dispute")]
 fn test_open_dispute_stranger_as_claimant_panics() {
     let e = setup_env();
     let contract_id = e.register_contract(None, VeritixToken);

@@ -571,3 +571,54 @@ fn test_create_split_with_memo_stores_memo() {
         assert_eq!(record.memo, memo);
     });
 }
+
+// Ensures that creating a split with recipient shares summing to exactly 10000 bps succeeds.
+#[test]
+fn test_create_split_total_bps_exactly_10000_ok() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+    let r2 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 1000);
+        let recipients = make_recipients(&e, &[(r1.clone(), 3000), (r2.clone(), 7000)]);
+        let split_id = create_split(&e, sender.clone(), recipients, 1000);
+        assert_eq!(split_id, 1);
+    });
+}
+
+// Ensures that creating a split with recipient shares summing to less than 10000 bps panics.
+#[test]
+#[should_panic(expected = "InvalidShares: recipient shares must sum to exactly 10000 bps")]
+fn test_create_split_total_bps_less_than_10000_panics() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+    let r2 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 1000);
+        let recipients = make_recipients(&e, &[(r1.clone(), 5000), (r2.clone(), 4000)]);
+        create_split(&e, sender.clone(), recipients, 1000);
+    });
+}
+
+// Ensures that creating a split with recipient shares summing to more than 10000 bps panics.
+#[test]
+#[should_panic(expected = "InvalidShares: recipient shares must sum to exactly 10000 bps")]
+fn test_create_split_total_bps_more_than_10000_panics() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+    let r2 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 1000);
+        let recipients = make_recipients(&e, &[(r1.clone(), 5000), (r2.clone(), 5001)]);
+        create_split(&e, sender.clone(), recipients, 1000);
+    });
+}

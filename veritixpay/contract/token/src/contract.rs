@@ -44,10 +44,14 @@ impl VeritixToken {
     // --- Admin ---
     pub fn initialize(e: Env, admin: Address, name: String, symbol: String, decimal: u32) {
         if has_admin(&e) { panic!("AlreadyInitialized"); }
-        let metadata = TokenMetadata { name, symbol, decimal };
+        let metadata = TokenMetadata { name: name.clone(), symbol: symbol.clone(), decimal };
         validate_metadata(&metadata);
         write_metadata(&e, metadata);
-        write_admin(&e, admin);
+        write_admin(&e, admin.clone());
+        e.events().publish(
+            (symbol_short!("initialized"), admin),
+            (name, symbol, decimal),
+        );
     }
     pub fn set_admin(e: Env, new_admin: Address) { transfer_admin(&e, new_admin); }
     pub fn admin(e: Env) -> Address { read_admin(&e) }

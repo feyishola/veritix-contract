@@ -66,7 +66,7 @@ pub fn create_split(
         total_bps += r.share_bps;
     }
     if total_bps != 10000 {
-        panic!("total bps must equal 10000");
+        panic!("InvalidShares: recipient shares must sum to exactly 10000 bps");
     }
 
     // 2. Increment and get Split ID
