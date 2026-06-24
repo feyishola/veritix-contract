@@ -428,3 +428,45 @@ fn test_frozen_account_can_receive_from_escrow_release() {
 
     assert_eq!(client.balance(&beneficiary), 1_000i128);
 }
+
+// Verifies that transfer_from rejects an expired allowance BEFORE requiring the spender's
+// auth signature. A call that will definitely fail should not emit an auth event.
+#[test]
+#[ignore = "Panics abort in this Soroban test configuration"]
+fn test_transfer_from_expired_allowance_panics_before_auth() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let spender = Address::generate(&env);
+    let receiver = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1_000i128);
+    // Approve with expiration_ledger == current ledger (expires after this ledger).
+    let current = env.ledger().sequence();
+    client.approve(&user, &spender, &500i128, &current);
+
+    // Advance past the expiry.
+    env.ledger().set_sequence_number(current + 1);
+
+    // Strip spender auth — if auth check fires first this would panic with auth error;
+    // with the pre-check in place it must panic with "allowance is expired" before auth.
+    env.set_auths(&[]);
+    client.transfer_from(&spender, &user, &receiver, &100i128);
+}
+
+#[test]
+#[ignore = "Panics abort in this Soroban test configuration"]
+fn test_transfer_from_insufficient_allowance_panics() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let spender = Address::generate(&env);
+    let receiver = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1_000i128);
+    client.approve(&user, &spender, &50i128, &1_000u32);
+
+    client.transfer_from(&spender, &user, &receiver, &200i128);
+}

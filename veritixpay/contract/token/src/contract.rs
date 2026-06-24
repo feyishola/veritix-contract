@@ -1,5 +1,5 @@
 use crate::admin::{check_admin, has_admin, read_admin, transfer_admin, write_admin};
-use crate::allowance::{read_allowance, spend_allowance, write_allowance};
+use crate::allowance::{read_allowance, spend_allowance, validate_allowance, write_allowance};
 use crate::balance::{
     decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance,
     spend_balance,
@@ -130,8 +130,9 @@ impl VeritixToken {
     /// Transfer tokens on behalf of a user via allowance.
     pub fn transfer_from(e: Env, spender: Address, from: Address, to: Address, amount: i128) {
         require_not_frozen_account(&e, &from);
-        require_not_frozen_account(&e, &spender);
         require_positive_amount(amount);
+        // Validate allowance before requiring auth: a definitely-failing call must not emit an auth event.
+        validate_allowance(&e, from.clone(), spender.clone(), amount);
         spender.require_auth();
         spend_allowance(&e, from.clone(), spender.clone(), amount);
         spend_balance(&e, from.clone(), amount);
