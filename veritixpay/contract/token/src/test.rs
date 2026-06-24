@@ -428,3 +428,46 @@ fn test_frozen_account_can_receive_from_escrow_release() {
 
     assert_eq!(client.balance(&beneficiary), 1_000i128);
 }
+
+// Verifies that spending the full allowance removes the Allowance(from, spender) storage
+// entry entirely rather than leaving a zero-value ghost key. A ghost entry would keep
+// charging ledger rent on every storage bump despite holding no value.
+#[test]
+fn test_spend_full_allowance_removes_storage_key() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let (contract_id, client) = create_client_with_id(&env);
+    let spender = Address::generate(&env);
+    let receiver = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1_000i128);
+    client.approve(&user, &spender, &400i128, &1_000u32);
+
+    // Confirm the allowance key exists before spending.
+    let key = crate::storage_types::DataKey::Allowance(crate::storage_types::AllowanceDataKey {
+        from: user.clone(),
+        spender: spender.clone(),
+    });
+    let before = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get::<crate::storage_types::DataKey, crate::storage_types::AllowanceValue>(&key)
+    });
+    assert!(before.is_some(), "expected Allowance key to exist after approve");
+
+    // Spend the entire allowance in one transfer_from call.
+    client.transfer_from(&spender, &user, &receiver, &400i128);
+    assert_eq!(client.allowance(&user, &spender), 0i128);
+
+    // The underlying storage key must be gone, not stored as amount=0.
+    let after = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get::<crate::storage_types::DataKey, crate::storage_types::AllowanceValue>(&key)
+    });
+    assert_eq!(
+        after, None,
+        "expected Allowance storage key to be removed after full spend, not stored as zero"
+    );
+}
