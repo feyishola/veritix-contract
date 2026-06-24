@@ -428,3 +428,45 @@ fn test_frozen_account_can_receive_from_escrow_release() {
 
     assert_eq!(client.balance(&beneficiary), 1_000i128);
 }
+
+// Verifies that unfreeze_account removes the Freeze(addr) storage key entirely,
+// not merely writing `false`. This ensures storage is cleaned up and avoids
+// stale keys occupying ledger rent indefinitely.
+#[test]
+fn test_unfreeze_removes_storage_key() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let (contract_id, client) = create_client_with_id(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+
+    // Freeze the user — the Freeze(user) key should now exist as true.
+    client.freeze(&user);
+    assert!(client.is_frozen(&user));
+
+    // Verify the raw storage key is present before unfreeze.
+    let key_before = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get::<crate::storage_types::DataKey, bool>(
+                &crate::storage_types::DataKey::Freeze(user.clone()),
+            )
+    });
+    assert_eq!(key_before, Some(true), "expected Freeze key to exist after freeze");
+
+    // Unfreeze — the key must be removed, not set to false.
+    client.unfreeze(&user);
+    assert!(!client.is_frozen(&user));
+
+    let key_after = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get::<crate::storage_types::DataKey, bool>(
+                &crate::storage_types::DataKey::Freeze(user.clone()),
+            )
+    });
+    assert_eq!(
+        key_after, None,
+        "expected Freeze storage key to be fully removed after unfreeze, not set to false"
+    );
+}
