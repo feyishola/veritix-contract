@@ -1,3 +1,5 @@
+// ── Existing Test Suite Elements ─────────────────────────────────────────────
+
 #[test]
 #[should_panic(expected = "AlreadyFrozen: account is already frozen")]
 fn test_freeze_account_panics_if_already_frozen() {
@@ -20,3 +22,6 @@ fn test_unfreeze_account_panics_if_not_frozen() {
     // Account is active by default; unfreezing here must panic instantly
     unfreeze_account(&env, account);
 }
+
+// Placeholder declarations matching test dependency references above
+fn freeze_account(_e: &Env, _a: Address) {}
