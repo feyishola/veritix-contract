@@ -52,6 +52,7 @@ pub enum DataKey {
     OpenDisputes,
     Freeze(Address),
     Paused,
+    ClawbackCoSigner,
 }
 
 pub fn read_persistent_record<T>(e: &Env, key: &DataKey, missing_message: &'static str) -> T

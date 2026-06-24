@@ -191,4 +191,71 @@ mod admin_test {
         assert_eq!(client.balance(&b), 700);
         assert_eq!(client.total_supply(), before_supply - 500);
     }
+
+    #[test]
+    fn test_clawback_no_cosigner_single_admin_auth_sufficient() {
+        let env = setup_env();
+        let (admin, client) = create_initialized_client(&env);
+        let victim = Address::generate(&env);
+
+        client.mint(&admin, &victim, &1_000i128);
+        // No cosigner set — single admin auth must work.
+        client.clawback(&admin, &victim, &200i128);
+
+        assert_eq!(client.balance(&victim), 800i128);
+        assert_eq!(client.total_supply(), 800i128);
+    }
+
+    #[test]
+    fn test_set_clawback_cosigner_requires_both_auths() {
+        let env = setup_env();
+        let (admin, client) = create_initialized_client(&env);
+        let cosigner = Address::generate(&env);
+        let victim = Address::generate(&env);
+
+        client.mint(&admin, &victim, &1_000i128);
+        client.set_clawback_cosigner(&admin, &cosigner);
+
+        // With cosigner set, mock_all_auths covers both — call must succeed.
+        client.clawback(&admin, &victim, &400i128);
+        assert_eq!(client.balance(&victim), 600i128);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_clawback_missing_cosigner_auth_panics() {
+        let env = setup_env();
+        let (admin, client) = create_initialized_client(&env);
+        let cosigner = Address::generate(&env);
+        let victim = Address::generate(&env);
+
+        client.mint(&admin, &victim, &1_000i128);
+        client.set_clawback_cosigner(&admin, &cosigner);
+
+        // Remove cosigner's auth — clawback must now panic.
+        env.set_auths(&[]);
+        client.clawback(&admin, &victim, &100i128);
+    }
+
+    #[test]
+    fn test_clawback_batch_with_cosigner() {
+        let env = setup_env();
+        let (admin, client) = create_initialized_client(&env);
+        let cosigner = Address::generate(&env);
+        let a = Address::generate(&env);
+        let b = Address::generate(&env);
+
+        client.mint(&admin, &a, &500i128);
+        client.mint(&admin, &b, &500i128);
+        client.set_clawback_cosigner(&admin, &cosigner);
+
+        let mut targets = soroban_sdk::Vec::new(&env);
+        targets.push_back((a.clone(), 100));
+        targets.push_back((b.clone(), 200));
+
+        // Both admin and cosigner are mock-authed.
+        client.clawback_batch(&admin, &targets);
+        assert_eq!(client.balance(&a), 400i128);
+        assert_eq!(client.balance(&b), 300i128);
+    }
 }
