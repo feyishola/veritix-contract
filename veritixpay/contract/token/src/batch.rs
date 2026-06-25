@@ -1,0 +1,87 @@
+use crate::admin::check_admin;
+use crate::balance::{decrease_supply, increase_supply, receive_balance, spend_balance};
+use crate::freeze::{freeze_account, unfreeze_account};
+use crate::validation::require_positive_amount;
+use soroban_sdk::{contracttype, symbol_short, Address, Env, Vec};
+
+const MAX_BATCH_TARGETS: u32 = 50;
+
+#[contracttype]
+#[derive(Clone)]
+pub struct BatchEntry {
+    pub address: Address,
+    pub amount: i128,
+}
+
+pub fn clawback_batch(e: &Env, admin: Address, targets: Vec<(Address, i128)>) {
+    check_admin(e, &admin);
+    if targets.len() > MAX_BATCH_TARGETS {
+        panic!("batch too large");
+    }
+    for i in 0..targets.len() {
+        let (from, amount) = targets.get(i).unwrap();
+        require_positive_amount(amount);
+        spend_balance(e, from.clone(), amount);
+        decrease_supply(e, amount);
+        e.events().publish((symbol_short!("clawback"), admin.clone(), from), amount);
+    }
+}
+
+pub fn freeze_batch(e: &Env, admin: Address, targets: Vec<Address>) {
+    check_admin(e, &admin);
+    if targets.len() > MAX_BATCH_TARGETS {
+        panic!("batch too large");
+    }
+    for i in 0..targets.len() {
+        let target = targets.get(i).unwrap();
+        freeze_account(e, admin.clone(), target);
+    }
+    e.events().publish((symbol_short!("batch_frz"), admin), targets.len());
+}
+
+pub fn unfreeze_batch(e: &Env, admin: Address, targets: Vec<Address>) {
+    check_admin(e, &admin);
+    if targets.len() > MAX_BATCH_TARGETS {
+        panic!("batch too large");
+    }
+    for i in 0..targets.len() {
+        let target = targets.get(i).unwrap();
+        unfreeze_account(e, admin.clone(), target);
+    }
+    e.events().publish((symbol_short!("batch_unf"), admin), targets.len());
+}
+
+pub fn mint_batch(e: &Env, admin: Address, recipients: Vec<BatchEntry>) {
+    check_admin(e, &admin);
+    if recipients.len() > MAX_BATCH_TARGETS {
+        panic!("BatchLimit: maximum 50 recipients per call");
+    }
+    let mut total: i128 = 0;
+    for i in 0..recipients.len() {
+        let entry = recipients.get(i).unwrap();
+        require_positive_amount(entry.amount);
+        receive_balance(e, entry.address.clone(), entry.amount);
+        increase_supply(e, entry.amount);
+        total = total.checked_add(entry.amount).expect("overflow");
+    }
+    e.events().publish((symbol_short!("btch_mint"), admin), total);
+}
+
+pub fn transfer_batch(e: &Env, from: Address, recipients: Vec<BatchEntry>) {
+    from.require_auth();
+    if recipients.len() > MAX_BATCH_TARGETS {
+        panic!("BatchLimit: maximum 50 recipients per call");
+    }
+    let mut total: i128 = 0;
+    for i in 0..recipients.len() {
+        let entry = recipients.get(i).unwrap();
+        require_positive_amount(entry.amount);
+        total = total.checked_add(entry.amount).expect("overflow");
+    }
+    spend_balance(e, from.clone(), total);
+    for i in 0..recipients.len() {
+        let entry = recipients.get(i).unwrap();
+        receive_balance(e, entry.address.clone(), entry.amount);
+    }
+    e.events().publish((symbol_short!("btch_xfer"), from), total);
+}
