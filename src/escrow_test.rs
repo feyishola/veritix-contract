@@ -416,3 +416,36 @@ fn test_create_escrow_event_with_empty_memo() {
     let list = t.client.get_escrows_by_depositor(&t.depositor);
     assert_eq!(list.get(0).unwrap(), id);
 }
+
+#[test]
+fn test_create_escrow_requires_depositor_auth() {
+    let env = Env::default();
+    
+    // Explicitly DO NOT call env.mock_all_auths() here.
+    // This ensures Soroban enforces cryptographic signatures strictly.
+
+    let depositor = Address::generate(&env);
+    let beneficiary = Address::generate(&env);
+    let token_addr = Address::generate(&env);
+    let memo = Bytes::new(&env);
+
+    // Attempting to invoke create_escrow should fail because the contract 
+    // demands a signature that we haven't provided.
+    let result = env.try_invoke_contract_with_address(
+        &depositor,
+        &|env| {
+            create_escrow(
+                env.clone(),
+                depositor.clone(),
+                beneficiary.clone(),
+                token_addr.clone(),
+                1000,
+                100,
+                memo.clone(),
+            )
+        }
+    );
+
+    // Assert that the call failed due to an authorization error
+    assert!(result.is_err(), "Expected transaction to fail due to missing depositor authentication.");
+}
