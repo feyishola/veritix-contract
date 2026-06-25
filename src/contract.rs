@@ -1,5 +1,36 @@
 use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, Vec};
 use crate::{escrow, multi_escrow};
+use soroban_sdk::{contractimpl, Address, Env};
+use crate::admin::validate_admin_address;
+use crate::storage_types::DataKey;
+
+pub struct EscrowContract;
+
+#[contractimpl]
+impl EscrowContract {
+    /// Initializes the global escrow contract configuration state.
+    ///
+    /// # Arguments
+    /// * `env` - The current execution environment.
+    /// * `admin` - The primary controller keypair address.
+    ///
+    /// # Safety Warning
+    /// **CRITICAL:** The `admin` address must be a funded, valid, and accessible account or 
+    /// deployed contract signature context. Initializing the contract with an incorrect, dead, 
+    /// or un-controlled address will permanently and irreversibly lock all admin-restricted actions.
+    pub fn initialize(env: Env, admin: Address) {
+        // 1. Strict Requirement: Fail-fast if the input address is unsafe or uninitialized
+        validate_admin_address(&env, &admin);
+
+        // 2. Assert initialization hasn't run yet
+        if env.storage().persistent().has(&DataKey::Admin) {
+            panic!("AlreadyInitialized: contract state is locked");
+        }
+
+        // 3. Save admin address securely to persistent state storage
+        env.storage().persistent().set(&DataKey::Admin, &admin);
+    }
+}
 
 pub trait VeriTixPayTrait {
     // ── Escrow ────────────────────────────────────────────────────────────────
