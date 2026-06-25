@@ -3,7 +3,6 @@
 //! Distribution is caller-authenticated by sender to avoid unauthorized payout triggers.
 
 use crate::balance::{receive_balance, spend_balance};
-use crate::escrow::EscrowRecord;
 use crate::storage_types::{
     increment_counter, read_persistent_record, write_persistent_record, DataKey,
     SPLIT_BUMP_AMOUNT, SPLIT_LIFETIME_THRESHOLD,
@@ -73,7 +72,6 @@ pub fn create_split(
     let count = increment_counter(e, &DataKey::SplitCount);
 
     // 3. Move funds from sender to contract
-    // Note: Assuming contract address is e.current_contract_address()
     spend_balance(e, sender.clone(), total_amount);
     receive_balance(e, e.current_contract_address(), total_amount);
 
@@ -152,7 +150,7 @@ pub fn distribute(e: &Env, caller: Address, split_id: u32) {
     // 4. Emit Observability Event
     e.events().publish(
         (
-            symbol_short!("split_distributed"),
+            symbol_short!("splt_dist"),
             split_id,
             sender_for_event,
         ),
@@ -191,7 +189,7 @@ pub fn cancel_split(e: &Env, caller: Address, split_id: u32) {
     write_persistent_record(e, &DataKey::Split(split_id), &record);
 
     e.events().publish(
-        (symbol_short!("split_cancelled"), split_id, caller),
+        (symbol_short!("splt_cxl"), split_id, caller),
         record.total_amount,
     );
 }
@@ -209,7 +207,8 @@ pub fn bulk_distribute(e: &Env, caller: Address, split_ids: Vec<u32>) {
         panic!("BulkLimit: maximum 10 split IDs per batch");
     }
     // Validate caller is sender for all splits before touching any funds
-    for split_id in split_ids.iter() {
+    for i in 0..split_ids.len() {
+        let split_id = split_ids.get(i).unwrap();
         let record: SplitRecord = e
             .storage()
             .persistent()
@@ -220,21 +219,24 @@ pub fn bulk_distribute(e: &Env, caller: Address, split_ids: Vec<u32>) {
         }
     }
     // Execute
-    for split_id in split_ids.iter() {
+    for i in 0..split_ids.len() {
+        let split_id = split_ids.get(i).unwrap();
         distribute(e, caller.clone(), split_id);
     }
+}
+
 /// Creates a split and immediately locks each recipient's share in its own escrow.
 /// Returns a `Vec<u32>` of escrow IDs in recipient order.
-/// Single atomic call — funds move once from sender into per-recipient escrows.
 pub fn create_split_with_escrow(
-/// Creates a split tagged with a memo (max 64 bytes) for off-chain correlation.
-pub fn create_split_with_memo(
     e: &Env,
     sender: Address,
     recipients: Vec<SplitRecipient>,
     total_amount: i128,
     expiry_ledger: u32,
 ) -> Vec<u32> {
+    use crate::storage_types::{increment_counter, write_persistent_record};
+    use crate::escrow::EscrowRecord;
+
     require_positive_amount(total_amount);
     sender.require_auth();
     if recipients.is_empty() {
@@ -247,8 +249,9 @@ pub fn create_split_with_memo(
     let len = recipients.len();
     let mut remaining = total_amount;
 
-    for (i, recipient) in recipients.iter().enumerate() {
-        let share = if i == (len as usize - 1) {
+    for i in 0..len {
+        let recipient = recipients.get(i).unwrap();
+        let share = if i == len - 1 {
             remaining
         } else {
             total_amount
@@ -275,6 +278,14 @@ pub fn create_split_with_memo(
         escrow_ids.push_back(escrow_id);
     }
     escrow_ids
+}
+
+/// Creates a split tagged with a memo (max 64 bytes) for off-chain correlation.
+pub fn create_split_with_memo(
+    e: &Env,
+    sender: Address,
+    recipients: Vec<SplitRecipient>,
+    total_amount: i128,
     memo: Bytes,
 ) -> u32 {
     if memo.len() > 64 {
@@ -287,6 +298,7 @@ pub fn create_split_with_memo(
         .get(&DataKey::Split(id))
         .expect("split not found");
     record.memo = memo;
+    use crate::storage_types::write_persistent_record;
     write_persistent_record(e, &DataKey::Split(id), &record);
     id
 }

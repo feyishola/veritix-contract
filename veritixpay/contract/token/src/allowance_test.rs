@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod allowance_tests {
-    use soroban_sdk::{Address, Env};
+    use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env};
 
     use crate::allowance::{get_allowances_for_spender, read_allowance, spend_allowance, write_allowance};
     use crate::contract::VeritixToken;
@@ -77,7 +77,7 @@ mod allowance_tests {
             let expiry = e.ledger().sequence() + 5;
             write_allowance(&e, from.clone(), spender.clone(), 500, expiry);
             // Advance ledger past expiry
-            e.ledger().set_sequence_number(expiry + 1);
+            e.ledger().with_mut(|l| l.sequence_number = expiry + 1);
             spend_allowance(&e, from.clone(), spender.clone(), 100);
         });
     }
@@ -89,7 +89,7 @@ mod allowance_tests {
         let from = Address::generate(&e);
         let spender = Address::generate(&e);
         e.as_contract(&contract_id, || {
-            e.ledger().set_sequence_number(100);
+            e.ledger().with_mut(|l| l.sequence_number = 100);
             // expiration_ledger is before current ledger
             write_allowance(&e, from.clone(), spender.clone(), 500, 50);
         });
