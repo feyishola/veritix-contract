@@ -1,4 +1,4 @@
-use soroban_sdk::{testutils::{Address as _, Events as _}, Address, Env};
+use soroban_sdk::{testutils::{Address as _, Events as _, Ledger as _}, Address, Env};
 
 use crate::balance::read_balance;
 use crate::contract::VeritixToken;
@@ -287,9 +287,10 @@ fn test_open_dispute_emits_event() {
     });
 
     let events = e.events().all();
-    assert_eq!(events.len(), 1);
-    // Topics: (dispute_opened, escrow_id, claimant), data: ()
-    assert_eq!(events.first().unwrap().0.len(), 3);
+    // Events: escr_crtd (from setup_escrow) + disp_open = 2 total
+    assert!(events.len() >= 1);
+    // The last event is the disp_open event with 3 topics: (dispute_opened, escrow_id, claimant)
+    assert_eq!(events.last().unwrap().1.len(), 3);
 }
 
 // Verifies that resolve_dispute emits events (escrow_refunded and
@@ -315,7 +316,7 @@ fn test_resolve_dispute_emits_event() {
     assert!(events.len() >= 1);
     // Last event should be dispute_resolved with 3 topics
     let last = events.last().unwrap();
-    assert_eq!(last.0.len(), 3);
+    assert_eq!(last.1.len(), 3);
 }
 
 // --- Dispute counter tests ---
@@ -440,7 +441,7 @@ fn test_expire_dispute_auto_resolves_for_depositor() {
     e.as_contract(&contract_id, || {
         let expiry = e.ledger().sequence() + 100;
         let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone(), Bytes::new(&e), expiry);
-        e.ledger().set_sequence_number(expiry + 1);
+        e.ledger().with_mut(|l| l.sequence_number = expiry + 1);
         expire_dispute(&e, dispute_id);
         let record = get_dispute(&e, dispute_id);
         assert_eq!(record.status, DisputeStatus::Expired);

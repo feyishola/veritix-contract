@@ -118,6 +118,139 @@ If you have an idea not covered by an existing issue, open one first and describ
 
 ---
 
+## Complete Example: Adding a New Module
+
+This walkthrough shows every step needed to add a hypothetical `counter` module — a simple per-address counter — from scratch. Copy and adapt this pattern for your own module.
+
+### Step 1 — Create `src/counter.rs`
+
+```rust
+//! Counter module — tracks a per-address integer counter.
+
+use crate::storage_types::{DataKey, PERSISTENT_BUMP_AMOUNT, PERSISTENT_LIFETIME_THRESHOLD};
+use soroban_sdk::{symbol_short, Address, Env};
+
+pub fn increment(e: &Env, owner: Address) -> u32 {
+    owner.require_auth();
+    let key = DataKey::Counter(owner.clone());
+    let current: u32 = e.storage().persistent().get(&key).unwrap_or(0);
+    let next = current + 1;
+    e.storage().persistent().set(&key, &next);
+    e.storage().persistent().extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+    e.events().publish((symbol_short!("counter"), owner), next);
+    next
+}
+
+pub fn get_count(e: &Env, owner: &Address) -> u32 {
+    let key = DataKey::Counter(owner.clone());
+    let val = e.storage().persistent().get(&key).unwrap_or(0);
+    if val > 0 {
+        e.storage().persistent().extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+    }
+    val
+}
+```
+
+**Auth pattern**: `owner.require_auth()` goes before any storage read or write. Never defer auth.
+
+**TTL pattern**: Call `extend_ttl` on every read and write of persistent storage. Use the module-appropriate constants from `storage_types.rs`.
+
+**Event pattern**: Use `symbol_short!` for the event name (max 9 chars). Topic is `(event_name, relevant_address)`, data is the meaningful payload.
+
+### Step 2 — Add `DataKey::Counter` to `src/storage_types.rs`
+
+Open `storage_types.rs` and add one variant to the `DataKey` enum:
+
+```rust
+pub enum DataKey {
+    // ... existing variants ...
+    Counter(Address),   // <- add this
+}
+```
+
+### Step 3 — Declare the module in `src/lib.rs`
+
+```rust
+pub mod counter;        // <- add this line alongside the other pub mod declarations
+```
+
+### Step 4 — Expose public entrypoints in `src/contract.rs`
+
+Import the module functions at the top:
+
+```rust
+use crate::counter::{get_count, increment};
+```
+
+Then add methods to `impl VeritixToken`:
+
+```rust
+pub fn increment_counter(e: Env, owner: Address) -> u32 {
+    increment(&e, owner)
+}
+pub fn get_counter(e: Env, owner: Address) -> u32 {
+    get_count(&e, &owner)
+}
+```
+
+### Step 5 — Create `src/counter_test.rs`
+
+```rust
+#[cfg(test)]
+mod counter_tests {
+    use soroban_sdk::{testutils::Address as _, Address, Env, String};
+    use crate::contract::{VeritixToken, VeritixTokenClient};
+
+    fn setup() -> (Env, Address, VeritixTokenClient<'static>) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let id = env.register_contract(None, VeritixToken);
+        let client = VeritixTokenClient::new(&env, &id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin, &String::from_str(&env, "Veritix"), &String::from_str(&env, "VTX"), &7u32);
+        (env, admin, client)
+    }
+
+    // Happy path: first increment returns 1, second returns 2.
+    #[test]
+    fn test_increment_increases_counter() {
+        let (env, _admin, client) = setup();
+        let user = Address::generate(&env);
+        assert_eq!(client.get_counter(&user), 0);
+        assert_eq!(client.increment_counter(&user), 1);
+        assert_eq!(client.increment_counter(&user), 2);
+        assert_eq!(client.get_counter(&user), 2);
+    }
+
+    // Auth guard: calling without a valid signer must panic.
+    #[test]
+    #[should_panic]
+    fn test_increment_without_auth_panics() {
+        let (env, _admin, client) = setup();
+        let user = Address::generate(&env);
+        env.set_auths(&[]);
+        client.increment_counter(&user);
+    }
+}
+```
+
+Add the test module to `lib.rs`:
+
+```rust
+#[cfg(test)]
+mod counter_test;
+```
+
+### Step 6 — Verify
+
+```bash
+make test   # all tests must pass
+make fmt    # no formatting diffs
+cargo clippy --all -- -D warnings   # no warnings
+```
+
+---
+
 ## Building and Testing
 
 All commands run from inside `veritixpay/contract/token/`:

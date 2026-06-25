@@ -64,7 +64,7 @@ pub fn create_escrow(
     // Optional observability event
     e.events().publish(
         (
-            symbol_short!("escrow_created"),
+            symbol_short!("escr_crtd"),
             depositor.clone(),
             beneficiary.clone(),
         ),
@@ -80,9 +80,6 @@ pub fn release_escrow(e: &Env, caller: Address, escrow_id: u32) {
 }
 
 pub fn try_release_escrow(e: &Env, caller: Address, escrow_id: u32) -> Result<(), &'static str> {
-    // Auth: caller must sign the transaction
-    caller.require_auth();
-
     let mut escrow = try_get_escrow(e, escrow_id)?;
 
     // Authorization: only the beneficiary can release
@@ -95,6 +92,9 @@ pub fn try_release_escrow(e: &Env, caller: Address, escrow_id: u32) -> Result<()
         return Err("already settled");
     }
 
+    // Auth: caller must sign the transaction (after state checks)
+    caller.require_auth();
+
     // Mark as released and persist
     escrow.released = true;
     write_persistent_record(e, &DataKey::Escrow(escrow_id), &escrow);
@@ -106,7 +106,7 @@ pub fn try_release_escrow(e: &Env, caller: Address, escrow_id: u32) -> Result<()
     // Event for observability
     e.events().publish(
         (
-            symbol_short!("escrow_released"),
+            symbol_short!("escr_rls"),
             escrow_id,
             escrow.beneficiary.clone(),
         ),
@@ -122,9 +122,6 @@ pub fn refund_escrow(e: &Env, caller: Address, escrow_id: u32) {
 }
 
 pub fn try_refund_escrow(e: &Env, caller: Address, escrow_id: u32) -> Result<(), &'static str> {
-    // Auth: caller must sign the transaction
-    caller.require_auth();
-
     let mut escrow = try_get_escrow(e, escrow_id)?;
 
     // Authorization: only the original depositor can refund, unless the escrow has expired
@@ -138,6 +135,9 @@ pub fn try_refund_escrow(e: &Env, caller: Address, escrow_id: u32) -> Result<(),
         return Err("already settled");
     }
 
+    // Auth: caller must sign the transaction (after state checks)
+    caller.require_auth();
+
     // Mark as refunded and persist
     escrow.refunded = true;
     write_persistent_record(e, &DataKey::Escrow(escrow_id), &escrow);
@@ -149,7 +149,7 @@ pub fn try_refund_escrow(e: &Env, caller: Address, escrow_id: u32) -> Result<(),
     // Event for observability
     e.events().publish(
         (
-            symbol_short!("escrow_refunded"),
+            symbol_short!("escr_rfnd"),
             escrow_id,
             escrow.depositor.clone(),
         ),
@@ -187,7 +187,6 @@ pub fn try_get_escrow(e: &Env, escrow_id: u32) -> Result<EscrowRecord, &'static 
 /// Only the contract admin may call this. The escrow must not already be settled.
 pub fn admin_settle_escrow(e: &Env, admin: Address, escrow_id: u32, recipient: Address) {
     check_admin(e, &admin);
-    admin.require_auth();
 
     let mut escrow = try_get_escrow(e, escrow_id)
         .unwrap_or_else(|err| panic!("{}", err));
@@ -203,7 +202,7 @@ pub fn admin_settle_escrow(e: &Env, admin: Address, escrow_id: u32, recipient: A
     receive_balance(e, recipient.clone(), escrow.amount);
 
     e.events().publish(
-        (symbol_short!("adm_settle"), escrow_id, admin),
+        (symbol_short!("adm_sttl"), escrow_id, admin),
         (recipient, escrow.amount),
     );
 }

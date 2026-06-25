@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod balance_tests {
-    use soroban_sdk::{Address, Env};
+    use soroban_sdk::{testutils::Address as _, Address, Env};
 
     use crate::balance::{
         decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance,

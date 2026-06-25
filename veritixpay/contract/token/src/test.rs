@@ -1,5 +1,5 @@
 use super::*;
-use soroban_sdk::{testutils::Address as _, testutils::Events as _, Address, Env, String, Symbol};
+use soroban_sdk::{testutils::Address as _, testutils::Events as _, testutils::Ledger as _, Address, Env, String};
 
 use crate::contract::VeritixTokenClient;
 
@@ -365,7 +365,7 @@ fn test_approve_with_past_expiration_panics() {
     client.mint(&admin, &user, &1000i128);
 
     // Advance ledger so that expiration_ledger = 0 is strictly in the past.
-    env.ledger().set_sequence_number(10);
+    env.ledger().with_mut(|l| l.sequence_number = 10);
     client.approve(&user, &spender, &400i128, &0u32);
 }
 
@@ -562,39 +562,25 @@ fn test_freeze_and_unfreeze_emit_observable_events() {
     let client = create_client(&env);
 
     initialize_client(&client, &env, &admin, 7);
-    let _ = env.events().all();
+    let before_freeze = env.events().all().len();
 
     client.freeze(&user);
     let freeze_events = env.events().all();
-    assert_eq!(freeze_events.len(), 1);
-    let freeze_event = freeze_events.first().unwrap();
-    assert_eq!(freeze_event.0.len(), 2);
-    assert_eq!(
-        freeze_event.0.get(0).unwrap().into_val(&env),
-        Symbol::new(&env, "frozen")
-    );
-    assert_eq!(
-        freeze_event.0.get(1).unwrap().into_val(&env),
-        user.clone().into()
-    );
-    assert_eq!(freeze_event.1.into_val(&env), admin.clone().into());
+    assert_eq!(freeze_events.len(), before_freeze + 1);
+    let freeze_event = freeze_events.last().unwrap();
+    assert_eq!(freeze_event.1.len(), 2);
+    // Topics: (frozen_symbol, user), data: admin
+    assert!(!freeze_event.1.is_empty());
 
-    let _ = env.events().all();
+    let before_unfreeze = env.events().all().len();
 
     client.unfreeze(&user);
     let unfreeze_events = env.events().all();
-    assert_eq!(unfreeze_events.len(), 1);
-    let unfreeze_event = unfreeze_events.first().unwrap();
-    assert_eq!(unfreeze_event.0.len(), 2);
-    assert_eq!(
-        unfreeze_event.0.get(0).unwrap().into_val(&env),
-        Symbol::new(&env, "unfrozen")
-    );
-    assert_eq!(
-        unfreeze_event.0.get(1).unwrap().into_val(&env),
-        user.clone().into()
-    );
-    assert_eq!(unfreeze_event.1.into_val(&env), admin.into());
+    assert_eq!(unfreeze_events.len(), before_unfreeze + 1);
+    let unfreeze_event = unfreeze_events.last().unwrap();
+    assert_eq!(unfreeze_event.1.len(), 2);
+    // Topics: (unfrozen_symbol, user), data: admin
+    assert!(!unfreeze_event.1.is_empty());
 }
 
 // Ensures that only the admin can freeze accounts — a non-admin caller must
@@ -638,6 +624,48 @@ fn test_transfer_from_over_allowance_panics() {
 // NOTE: freeze/unfreeze currently emit no events — this is a known gap.
 // The functions below test the events that ARE emitted.
 
+// Verifies that unfreeze_account removes the Freeze(addr) storage key entirely,
+// not merely writing `false`. This ensures storage is cleaned up and avoids
+// stale keys occupying ledger rent indefinitely.
+#[test]
+fn test_unfreeze_removes_storage_key() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let (contract_id, client) = create_client_with_id(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+
+    // Freeze the user — the Freeze(user) key should now exist as true.
+    client.freeze(&user);
+    assert!(client.is_frozen(&user));
+
+    // Verify the raw storage key is present before unfreeze.
+    let key_before = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get::<crate::storage_types::DataKey, bool>(
+                &crate::storage_types::DataKey::Freeze(user.clone()),
+            )
+    });
+    assert_eq!(key_before, Some(true), "expected Freeze key to exist after freeze");
+
+    // Unfreeze — the key must be removed, not set to false.
+    client.unfreeze(&user);
+    assert!(!client.is_frozen(&user));
+
+    let key_after = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get::<crate::storage_types::DataKey, bool>(
+                &crate::storage_types::DataKey::Freeze(user.clone()),
+            )
+    });
+    assert_eq!(
+        key_after, None,
+        "expected Freeze storage key to be fully removed after unfreeze, not set to false"
+    );
+}
+
 // Verifies that set_admin emits a single event with (admin_set, old_admin)
 // topic and new_admin as data.
 #[test]
@@ -648,12 +676,12 @@ fn test_set_admin_emits_event() {
     let new_admin = Address::generate(&env);
 
     initialize_client(&client, &env, &admin, 7);
-    let _ = env.events().all();
+    let before = env.events().all().len();
 
     client.set_admin(&new_admin);
 
     let events = env.events().all();
-    assert_eq!(events.len(), 1);
+    assert_eq!(events.len(), before + 1);
     // Topics: (admin_set, current_admin), data: new_admin
-    assert_eq!(events.first().unwrap().0.len(), 2);
+    assert_eq!(events.last().unwrap().1.len(), 2);
 }

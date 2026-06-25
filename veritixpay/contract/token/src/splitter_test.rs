@@ -401,7 +401,7 @@ fn test_distribute_emits_event() {
     let events = e.events().all();
     assert_eq!(events.len(), 1);
     // Topics: (split_distributed, split_id, sender), data: total_amount
-    assert_eq!(events.first().unwrap().0.len(), 3);
+    assert_eq!(events.first().unwrap().1.len(), 3);
 }
 
 // NOTE: create_split currently emits no event — this is a known gap (see issue #162).
@@ -429,7 +429,7 @@ fn test_cancel_split_emits_event() {
     let events = e.events().all();
     assert_eq!(events.len(), 1);
     // Topics: (split_cancelled, split_id, caller), data: total_amount
-    assert_eq!(events.first().unwrap().0.len(), 3);
+    assert_eq!(events.first().unwrap().1.len(), 3);
 }
 
 // --- Split counter tests ---

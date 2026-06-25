@@ -26,6 +26,7 @@ pub struct DisputeRecord {
     pub evidence: Bytes,
     pub opened_at_ledger: u32,
     pub expiry_ledger: u32,
+    pub resolution_note: Bytes,
 }
 
 fn bump_dispute(e: &Env, key: &DataKey) {
@@ -65,18 +66,17 @@ fn settle_escrow_by_outcome(e: &Env, escrow_id: u32, release_to_beneficiary: boo
         write_persistent_record(e, &DataKey::Escrow(escrow_id), &escrow);
         spend_balance(e, e.current_contract_address(), escrow.amount);
         receive_balance(e, escrow.beneficiary.clone(), escrow.amount);
-        e.events().publish((symbol_short!("escrow_released"), escrow_id, escrow.beneficiary.clone()), escrow.amount);
+        e.events().publish((symbol_short!("escr_rls"), escrow_id, escrow.beneficiary.clone()), escrow.amount);
     } else {
         escrow.refunded = true;
         write_persistent_record(e, &DataKey::Escrow(escrow_id), &escrow);
         spend_balance(e, e.current_contract_address(), escrow.amount);
         receive_balance(e, escrow.depositor.clone(), escrow.amount);
-        e.events().publish((symbol_short!("escrow_refunded"), escrow_id, escrow.depositor.clone()), escrow.amount);
+        e.events().publish((symbol_short!("escr_rfnd"), escrow_id, escrow.depositor.clone()), escrow.amount);
     }
 }
 
 pub fn open_dispute(e: &Env, claimant: Address, escrow_id: u32, resolver: Address, evidence: Bytes, expiry_ledger: u32) -> u32 {
-    claimant.require_auth();
     if evidence.len() > 128 { panic!("EvidenceTooLong: evidence cannot exceed 128 bytes"); }
     let current = e.ledger().sequence();
     if expiry_ledger <= current { panic!("InvalidExpiry: expiry_ledger must be in the future"); }
@@ -87,11 +87,13 @@ pub fn open_dispute(e: &Env, claimant: Address, escrow_id: u32, resolver: Addres
     if resolver == escrow.depositor { panic!("InvalidResolver: resolver cannot be the depositor"); }
     if resolver == escrow.beneficiary { panic!("InvalidResolver: resolver cannot be the beneficiary"); }
     if e.storage().persistent().has(&DataKey::EscrowDispute(escrow_id)) { panic!("DisputeAlreadyOpen: An open dispute already exists for this escrow"); }
+    claimant.require_auth();
     let count = increment_counter(e, &DataKey::DisputeCount);
     let record = DisputeRecord {
         id: count, escrow_id, claimant: claimant.clone(), resolver,
         status: DisputeStatus::Open, evidence: evidence.clone(),
         opened_at_ledger: current, expiry_ledger,
+        resolution_note: Bytes::new(e),
     };
     let dispute_key = DataKey::Dispute(count);
     e.storage().persistent().set(&dispute_key, &record);
@@ -100,24 +102,24 @@ pub fn open_dispute(e: &Env, claimant: Address, escrow_id: u32, resolver: Addres
     bump_dispute(e, &DataKey::EscrowDispute(escrow_id));
     append_dispute_history(e, escrow_id, count);
     append_open_dispute(e, count);
-    e.events().publish((symbol_short!("disp_opened"), escrow_id, claimant.clone()), evidence);
+    e.events().publish((symbol_short!("disp_open"), escrow_id, claimant.clone()), evidence);
     count
 }
 
 pub fn resolve_dispute(e: &Env, resolver: Address, dispute_id: u32, release_to_beneficiary: bool) {
-    resolver.require_auth();
     let dispute_key = DataKey::Dispute(dispute_id);
     let mut dispute: DisputeRecord = e.storage().persistent().get(&dispute_key).expect("Dispute not found");
     bump_dispute(e, &dispute_key);
     if dispute.status != DisputeStatus::Open { panic!("AlreadyResolved: This dispute has already been resolved"); }
     if dispute.resolver != resolver { panic!("UnauthorizedResolver: Only the designated resolver can resolve this"); }
+    resolver.require_auth();
     settle_escrow_by_outcome(e, dispute.escrow_id, release_to_beneficiary);
     dispute.status = if release_to_beneficiary { DisputeStatus::ResolvedForBeneficiary } else { DisputeStatus::ResolvedForDepositor };
     e.storage().persistent().set(&dispute_key, &dispute);
     bump_dispute(e, &dispute_key);
     e.storage().persistent().remove(&DataKey::EscrowDispute(dispute.escrow_id));
     remove_open_dispute(e, dispute_id);
-    e.events().publish((symbol_short!("disp_resolved"), dispute_id, resolver), release_to_beneficiary);
+    e.events().publish((symbol_short!("disp_rslv"), dispute_id, resolver), release_to_beneficiary);
 }
 
 /// Anyone can call this after `expiry_ledger` has passed.
@@ -135,7 +137,24 @@ pub fn expire_dispute(e: &Env, dispute_id: u32) {
     bump_dispute(e, &dispute_key);
     e.storage().persistent().remove(&DataKey::EscrowDispute(escrow_id));
     remove_open_dispute(e, dispute_id);
-    e.events().publish((symbol_short!("disp_expired"), dispute_id), escrow_id);
+    e.events().publish((symbol_short!("disp_exp"), dispute_id), escrow_id);
+}
+
+pub fn resolve_dispute_with_note(e: &Env, resolver: Address, dispute_id: u32, release_to_beneficiary: bool, note: Bytes) {
+    let dispute_key = DataKey::Dispute(dispute_id);
+    let mut dispute: DisputeRecord = e.storage().persistent().get(&dispute_key).expect("Dispute not found");
+    bump_dispute(e, &dispute_key);
+    if dispute.status != DisputeStatus::Open { panic!("AlreadyResolved: This dispute has already been resolved"); }
+    if dispute.resolver != resolver { panic!("UnauthorizedResolver: Only the designated resolver can resolve this"); }
+    resolver.require_auth();
+    settle_escrow_by_outcome(e, dispute.escrow_id, release_to_beneficiary);
+    dispute.status = if release_to_beneficiary { DisputeStatus::ResolvedForBeneficiary } else { DisputeStatus::ResolvedForDepositor };
+    dispute.resolution_note = note;
+    e.storage().persistent().set(&dispute_key, &dispute);
+    bump_dispute(e, &dispute_key);
+    e.storage().persistent().remove(&DataKey::EscrowDispute(dispute.escrow_id));
+    remove_open_dispute(e, dispute_id);
+    e.events().publish((symbol_short!("disp_rslv"), dispute_id, resolver), release_to_beneficiary);
 }
 
 pub fn get_dispute(e: &Env, dispute_id: u32) -> DisputeRecord {
