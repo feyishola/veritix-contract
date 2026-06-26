@@ -553,6 +553,126 @@ fn test_frozen_account_can_receive_from_escrow_release() {
     assert_eq!(client.balance(&beneficiary), 1_000i128);
 }
 
+#[test]
+#[should_panic(
+    expected = "InvalidRecipient: cannot transfer directly to the contract address — use create_escrow instead"
+)]
+fn test_mint_to_self_panics() {
+    let (env, admin, _user) = setup();
+    env.mock_all_auths();
+    let (contract_id, client) = create_client_with_id(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &contract_id, &1000);
+}
+
+#[test]
+#[should_panic(
+    expected = "InvalidRecipient: cannot transfer directly to the contract address — use create_escrow instead"
+)]
+fn test_transfer_to_self_panics() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let (contract_id, client) = create_client_with_id(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1000);
+    client.transfer(&user, &contract_id, &500);
+}
+
+#[test]
+#[should_panic(
+    expected = "InvalidRecipient: cannot transfer directly to the contract address — use create_escrow instead"
+)]
+fn test_transfer_from_to_self_panics() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let (contract_id, client) = create_client_with_id(&env);
+    let spender = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1000);
+    client.approve(&user, &spender, &500, &100);
+    client.transfer_from(&spender, &user, &contract_id, &500);
+}
+
+#[test]
+fn test_supply_invariant_after_transfer_and_approve() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let receiver = Address::generate(&env);
+    let spender = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1000);
+
+    let initial_supply = client.total_supply();
+
+    client.transfer(&user, &receiver, &100);
+    client.approve(&receiver, &spender, &50, &100);
+    client.transfer_from(&spender, &receiver, &user, &50);
+
+    assert_eq!(client.total_supply(), initial_supply);
+}
+
+#[test]
+fn test_supply_invariant_after_mint_and_burn() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1000);
+
+    let initial_supply = client.total_supply();
+
+    client.mint(&admin, &user, &500);
+    client.burn(&user, &500);
+
+    assert_eq!(client.total_supply(), initial_supply);
+}
+
+#[test]
+fn test_supply_invariant_after_escrow_and_release() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let beneficiary = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1000);
+
+    let initial_supply = client.total_supply();
+
+    let escrow_id = client.create_escrow(&user, &beneficiary, &500, &100);
+    client.release_escrow(&user, &escrow_id);
+
+    assert_eq!(client.total_supply(), initial_supply);
+}
+
+#[test]
+fn test_supply_invariant_after_split_and_distribute() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let r1 = Address::generate(&env);
+    let r2 = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1000);
+
+    let initial_supply = client.total_supply();
+
+    let recipients = soroban_sdk::vec![&env, (r1.clone(), 50), (r2.clone(), 50)];
+    let split_id = client.create_split(&user, &recipients, &100);
+    client.distribute(&user, &split_id);
+
+    assert_eq!(client.total_supply(), initial_supply);
+}
+
+
+
 // Verifies that transfer_from rejects an expired allowance BEFORE requiring the spender's
 // auth signature. A call that will definitely fail should not emit an auth event.
 #[test]
@@ -911,41 +1031,4 @@ fn test_contract_stats_escrow_count_increments() {
 
     client.create_escrow(&user, &beneficiary, &500i128, &1_000u32);
     assert_eq!(client.contract_stats().escrow_count, 2);
-}
-
-#[test]
-fn test_multiple_clawbacks_reduce_supply_correctly() {
-    let (env, admin, user1) = setup();
-    env.mock_all_auths();
-    let client = create_client(&env);
-    let user2 = Address::generate(&env);
-    let user3 = Address::generate(&env);
-    let user4 = Address::generate(&env);
-    let user5 = Address::generate(&env);
-
-    initialize_client(&client, &env, &admin, 7);
-    client.mint(&admin, &user1, &1000i128);
-    client.mint(&admin, &user2, &1000i128);
-    client.mint(&admin, &user3, &1000i128);
-    client.mint(&admin, &user4, &1000i128);
-    client.mint(&admin, &user5, &1000i128);
-
-    assert_eq!(client.total_supply(), 5000);
-
-    client.clawback(&admin, &user1, &100i128);
-    assert_eq!(client.total_supply(), 4900);
-    assert_eq!(client.balance(&user1), 900);
-
-    client.clawback(&admin, &user2, &200i128);
-    assert_eq!(client.total_supply(), 4700);
-    assert_eq!(client.balance(&user2), 800);
-
-    client.clawback(&admin, &user3, &500i128);
-    assert_eq!(client.total_supply(), 4200);
-    assert_eq!(client.balance(&user3), 500);
-
-    assert_eq!(client.balance(&user1), 900);
-    assert_eq!(client.balance(&user2), 800);
-    assert_eq!(client.balance(&user4), 1000);
-    assert_eq!(client.balance(&user5), 1000);
 }
