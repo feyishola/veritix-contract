@@ -1,10 +1,5 @@
-use crate::admin::{check_admin, has_admin, read_admin, read_clawback_cosigner, transfer_admin, write_admin, write_clawback_cosigner};
-use crate::admin::{check_admin, has_admin, read_admin, transfer_admin, write_admin};
-use crate::allowance::{read_allowance, spend_allowance, validate_allowance, write_allowance};
-use crate::balance::{
-    decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance,
-    spend_balance,
-use crate::allowance::{get_allowances_for_spender, read_allowance, spend_allowance, write_allowance};
+use crate::admin::{check_admin, has_admin, read_admin, read_clawback_cosigner, transfer_admin, write_admin, write_clawback_cosigner, propose_admin, accept_admin};
+use crate::allowance::{get_allowances_for_spender, increase_allowance, decrease_allowance, read_allowance, spend_allowance, validate_allowance, write_allowance};
 use crate::balance::{decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance, spend_balance};
 use crate::batch::{clawback_batch, freeze_batch, unfreeze_batch};
 use crate::dispute::{
@@ -29,7 +24,7 @@ use crate::splitter::{
     get_split as split_get, SplitRecord, SplitRecipient,
 };
 use crate::validation::{require_not_frozen_account, require_positive_amount};
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Bytes, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, String, Vec};
 
 #[contract]
 pub struct VeritixToken;
@@ -72,7 +67,7 @@ impl VeritixToken {
         write_metadata(&e, metadata);
         write_admin(&e, &admin);
         e.events().publish(
-            (symbol_short!("initialized"), admin),
+            (symbol_short!("init"), admin),
             (name, symbol, decimal),
         );
     }
@@ -159,15 +154,11 @@ impl VeritixToken {
         e.events().publish((symbol_short!("transfer"), from), (to, amount));
     }
     pub fn transfer_from(e: Env, spender: Address, from: Address, to: Address, amount: i128) {
-        spender.require_auth();
         require_not_paused(&e);
         require_not_frozen_account(&e, &from);
         require_positive_amount(amount);
-        // Validate allowance before requiring auth: a definitely-failing call must not emit an auth event.
         validate_allowance(&e, from.clone(), spender.clone(), amount);
-        spender.require_auth();
         spend_allowance(&e, from.clone(), spender.clone(), amount);
-        spend_allowance(&e, from.clone(), spender, amount);
         spend_balance(&e, from.clone(), amount);
         receive_balance(&e, to.clone(), amount);
         e.events().publish((symbol_short!("xfer_from"), from), (to, amount));
@@ -352,5 +343,34 @@ impl VeritixToken {
     }
     pub fn is_executable(e: Env, recurring_id: u32) -> bool {
         is_executable(&e, recurring_id)
+    }
+
+    // --- Allowance Increase/Decrease ---
+    pub fn increase_allowance(e: Env, from: Address, spender: Address, delta: i128, expiration_ledger: u32) {
+        increase_allowance(&e, from, spender, delta, expiration_ledger);
+    }
+    pub fn decrease_allowance(e: Env, from: Address, spender: Address, delta: i128) {
+        decrease_allowance(&e, from, spender, delta);
+    }
+
+    // --- Two-step Admin Transfer ---
+    pub fn propose_admin(e: Env, new_admin: Address) {
+        propose_admin(&e, &new_admin);
+    }
+    pub fn accept_admin(e: Env) {
+        accept_admin(&e);
+    }
+
+    // --- Dividend Distribution ---
+    pub fn distribute_dividend(e: Env, admin: Address, amount: i128) {
+        crate::dividend::distribute_dividend(&e, admin, amount);
+    }
+
+    // --- Permit ---
+    pub fn permit(e: Env, owner: Address, spender: Address, amount: i128, expiration_ledger: u32, nonce: u64, public_key: BytesN<32>, signature: BytesN<64>) {
+        crate::permit::permit(&e, owner, spender, amount, expiration_ledger, nonce, public_key, signature);
+    }
+    pub fn nonces(e: Env, owner: Address) -> u64 {
+        crate::permit::nonces(&e, owner)
     }
 }

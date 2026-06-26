@@ -129,11 +129,27 @@ pub fn validate_allowance(e: &Env, from: Address, spender: Address, amount: i128
     if allowance.amount < amount {
         panic!("insufficient allowance");
     }
+}
+
 pub fn get_allowances_for_spender(e: &Env, spender: Address) -> Vec<Address> {
     e.storage()
         .persistent()
         .get(&DataKey::SpenderAllowances(spender))
         .unwrap_or_else(|| Vec::new(e))
+}
+
+pub fn increase_allowance(e: &Env, from: Address, spender: Address, delta: i128, expiration_ledger: u32) {
+    from.require_auth();
+    let current = read_allowance(e, from.clone(), spender.clone());
+    let new_amount = current.amount.checked_add(delta).expect("allowance overflow");
+    write_allowance(e, from, spender, new_amount, expiration_ledger);
+}
+
+pub fn decrease_allowance(e: &Env, from: Address, spender: Address, delta: i128) {
+    from.require_auth();
+    let current = read_allowance(e, from.clone(), spender.clone());
+    let new_amount = if delta > current.amount { 0 } else { current.amount - delta };
+    write_allowance(e, from, spender, new_amount, current.expiration_ledger);
 }
 
 pub fn spend_allowance(e: &Env, from: Address, spender: Address, amount: i128) {

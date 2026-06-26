@@ -558,6 +558,8 @@ fn test_frozen_account_can_receive_from_escrow_release() {
 #[test]
 #[ignore = "Panics abort in this Soroban test configuration"]
 fn test_transfer_from_expired_allowance_panics_before_auth() {
+    // Intentionally empty - marked #[ignore].
+}
 #[test]
 fn test_burn_from_spends_allowance_and_reduces_supply() {
     let (env, admin, user) = setup();
