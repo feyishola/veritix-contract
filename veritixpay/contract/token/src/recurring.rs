@@ -43,7 +43,7 @@ pub fn setup_recurring(e: &Env, payer: Address, payee: Address, amount: i128, in
     e.storage().persistent().set(&key, &record);
     e.storage().persistent().extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
     append_payer_index(e, &payer, count);
-    e.events().publish((symbol_short!("recur_setup"), payer.clone()), (payee, amount));
+    e.events().publish((symbol_short!("recur_stp"), payer.clone()), (payee, amount));
     count
 }
 
@@ -64,7 +64,7 @@ pub fn execute_recurring(e: &Env, recurring_id: u32) {
     record.last_charged_ledger = current_ledger;
     e.storage().persistent().set(&key, &record);
     e.storage().persistent().extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
-    e.events().publish((symbol_short!("recur_executed"), recurring_id), record.amount);
+    e.events().publish((symbol_short!("recur_exe"), recurring_id), record.amount);
 }
 
 pub fn cancel_recurring(e: &Env, caller: Address, recurring_id: u32) {
@@ -76,7 +76,7 @@ pub fn cancel_recurring(e: &Env, caller: Address, recurring_id: u32) {
     record.active = false;
     e.storage().persistent().set(&key, &record);
     e.storage().persistent().extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
-    e.events().publish((symbol_short!("recur_cancelled"), recurring_id, caller.clone()), ());
+    e.events().publish((symbol_short!("recur_cxl"), recurring_id, caller.clone()), ());
 }
 
 pub fn pause_recurring(e: &Env, caller: Address, recurring_id: u32) {
@@ -88,7 +88,7 @@ pub fn pause_recurring(e: &Env, caller: Address, recurring_id: u32) {
     record.paused = true;
     e.storage().persistent().set(&key, &record);
     e.storage().persistent().extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
-    e.events().publish((symbol_short!("recur_paused"), recurring_id), ());
+    e.events().publish((symbol_short!("recur_psd"), recurring_id), ());
 }
 
 pub fn resume_recurring(e: &Env, caller: Address, recurring_id: u32) {
@@ -100,7 +100,7 @@ pub fn resume_recurring(e: &Env, caller: Address, recurring_id: u32) {
     record.paused = false;
     e.storage().persistent().set(&key, &record);
     e.storage().persistent().extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
-    e.events().publish((symbol_short!("recur_resumed"), recurring_id), ());
+    e.events().publish((symbol_short!("recur_rmd"), recurring_id), ());
 }
 
 pub fn amend_recurring(e: &Env, caller: Address, recurring_id: u32, new_amount: Option<i128>, new_interval: Option<u32>) {
@@ -114,7 +114,7 @@ pub fn amend_recurring(e: &Env, caller: Address, recurring_id: u32, new_amount: 
     if let Some(ivl) = new_interval { if ivl == 0 { panic!("interval must be >= 1"); } record.interval = ivl; }
     e.storage().persistent().set(&key, &record);
     e.storage().persistent().extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
-    e.events().publish((symbol_short!("recur_amended"), recurring_id), (record.amount, record.interval));
+    e.events().publish((symbol_short!("recur_amd"), recurring_id), (record.amount, record.interval));
 }
 
 pub fn get_recurring(e: &Env, recurring_id: u32) -> RecurringRecord {

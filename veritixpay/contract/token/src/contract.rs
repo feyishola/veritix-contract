@@ -1,4 +1,8 @@
 use crate::admin::{check_admin, has_admin, read_admin, transfer_admin, write_admin};
+use crate::allowance::{read_allowance, spend_allowance, validate_allowance, write_allowance};
+use crate::balance::{
+    decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance,
+    spend_balance,
 use crate::allowance::{get_allowances_for_spender, read_allowance, spend_allowance, write_allowance};
 use crate::balance::{decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance, spend_balance};
 use crate::batch::{clawback_batch, freeze_batch, unfreeze_batch};
@@ -100,6 +104,7 @@ impl VeritixToken {
     }
     pub fn burn_from(e: Env, spender: Address, from: Address, amount: i128) {
         spender.require_auth();
+        require_not_frozen_account(&e, &from);
         require_not_paused(&e);
         require_positive_amount(amount);
         spend_allowance(&e, from.clone(), spender.clone(), amount);
@@ -131,6 +136,10 @@ impl VeritixToken {
         require_not_paused(&e);
         require_not_frozen_account(&e, &from);
         require_positive_amount(amount);
+        // Validate allowance before requiring auth: a definitely-failing call must not emit an auth event.
+        validate_allowance(&e, from.clone(), spender.clone(), amount);
+        spender.require_auth();
+        spend_allowance(&e, from.clone(), spender.clone(), amount);
         spend_allowance(&e, from.clone(), spender, amount);
         spend_balance(&e, from.clone(), amount);
         receive_balance(&e, to.clone(), amount);

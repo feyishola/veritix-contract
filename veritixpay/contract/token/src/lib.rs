@@ -1,13 +1,13 @@
 #![no_std]
 #![allow(unexpected_cfgs)]
 
-// Veritix Pay contract modules.
-// Contributors: see CONTRIBUTING.md for how to get started.
+#[cfg(test)]
+extern crate std;
 
 pub mod admin;
 pub mod allowance;
-pub mod batch;
 pub mod balance;
+pub mod batch;
 pub mod dispute;
 pub mod escrow;
 pub mod freeze;
@@ -18,7 +18,6 @@ pub mod splitter;
 pub mod storage_types;
 pub mod validation;
 
-pub mod batch;
 mod contract;
 
 #[cfg(test)]

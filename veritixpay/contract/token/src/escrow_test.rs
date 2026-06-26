@@ -1,5 +1,5 @@
 use soroban_sdk::{
-    testutils::{Address as _, Events as _},
+    testutils::{Address as _, Events as _, Ledger as _},
     Address, Env,
 };
 
@@ -558,7 +558,7 @@ fn test_create_escrow_emits_event() {
     let events = e.events().all();
     assert_eq!(events.len(), 1);
     // Topics: (escrow_created, depositor, beneficiary), data: amount
-    assert_eq!(events.first().unwrap().0.len(), 3);
+    assert_eq!(events.first().unwrap().1.len(), 3);
 }
 
 // Verifies that release_escrow emits a single event with (escrow_released,
@@ -576,17 +576,16 @@ fn test_release_escrow_emits_event() {
         escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), 1000, 1000);
     });
 
-    // Clear create event
-    let _ = e.events().all();
+    let before = e.events().all().len();
 
     e.as_contract(&contract_id, || {
         release_escrow(&e, beneficiary.clone(), escrow_id);
     });
 
     let events = e.events().all();
-    assert_eq!(events.len(), 1);
+    assert_eq!(events.len(), before + 1);
     // Topics: (escrow_released, escrow_id, beneficiary), data: amount
-    assert_eq!(events.first().unwrap().0.len(), 3);
+    assert_eq!(events.last().unwrap().1.len(), 3);
 }
 
 // Verifies that refund_escrow emits a single event with (escrow_refunded,
@@ -604,16 +603,16 @@ fn test_refund_escrow_emits_event() {
         escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), 1000, 1000);
     });
 
-    let _ = e.events().all();
+    let before = e.events().all().len();
 
     e.as_contract(&contract_id, || {
         refund_escrow(&e, depositor.clone(), escrow_id);
     });
 
     let events = e.events().all();
-    assert_eq!(events.len(), 1);
+    assert_eq!(events.len(), before + 1);
     // Topics: (escrow_refunded, escrow_id, depositor), data: amount
-    assert_eq!(events.first().unwrap().0.len(), 3);
+    assert_eq!(events.last().unwrap().1.len(), 3);
 }
 
 // Ensures that creating an escrow with an expiration ledger in the past is
@@ -629,7 +628,7 @@ fn test_create_escrow_past_expiry_panics() {
 
     e.as_contract(&contract_id, || {
         // Advance ledger so expiry_ledger = 0 is in the past
-        e.ledger().set_sequence_number(10);
+        e.ledger().with_mut(|l| l.sequence_number = 10);
         crate::balance::receive_balance(&e, depositor.clone(), amount);
         create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 0);
     });
@@ -686,7 +685,7 @@ fn test_expired_escrow_can_be_refunded_by_third_party() {
 
     e.as_contract(&contract_id, || {
         // Advance past expiry
-        e.ledger().set_sequence_number(6);
+        e.ledger().with_mut(|l| l.sequence_number = 6);
         let before = read_balance(&e, depositor.clone());
         // Third party triggers refund after expiry
         refund_escrow(&e, third_party.clone(), escrow_id);
