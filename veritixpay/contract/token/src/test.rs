@@ -912,3 +912,40 @@ fn test_contract_stats_escrow_count_increments() {
     client.create_escrow(&user, &beneficiary, &500i128, &1_000u32);
     assert_eq!(client.contract_stats().escrow_count, 2);
 }
+
+#[test]
+fn test_multiple_clawbacks_reduce_supply_correctly() {
+    let (env, admin, user1) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let user2 = Address::generate(&env);
+    let user3 = Address::generate(&env);
+    let user4 = Address::generate(&env);
+    let user5 = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user1, &1000i128);
+    client.mint(&admin, &user2, &1000i128);
+    client.mint(&admin, &user3, &1000i128);
+    client.mint(&admin, &user4, &1000i128);
+    client.mint(&admin, &user5, &1000i128);
+
+    assert_eq!(client.total_supply(), 5000);
+
+    client.clawback(&admin, &user1, &100i128);
+    assert_eq!(client.total_supply(), 4900);
+    assert_eq!(client.balance(&user1), 900);
+
+    client.clawback(&admin, &user2, &200i128);
+    assert_eq!(client.total_supply(), 4700);
+    assert_eq!(client.balance(&user2), 800);
+
+    client.clawback(&admin, &user3, &500i128);
+    assert_eq!(client.total_supply(), 4200);
+    assert_eq!(client.balance(&user3), 500);
+
+    assert_eq!(client.balance(&user1), 900);
+    assert_eq!(client.balance(&user2), 800);
+    assert_eq!(client.balance(&user4), 1000);
+    assert_eq!(client.balance(&user5), 1000);
+}
