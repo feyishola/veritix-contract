@@ -16,6 +16,9 @@ pub struct EscrowRecord {
     pub memo: Bytes,            // #175: arbitrary tag — max 64 bytes
 }
 
+// Anti-spam configuration threshold (5 minutes cooldown window)
+const ESCROW_COOLDOWN_SECONDS: u64 = 300;
+
 // ── Storage helpers ──────────────────────────────────────────────────────────
 
 fn read_escrow_ids(e: &Env, key: DataKey) -> Vec<u32> {
@@ -53,7 +56,9 @@ fn get_admin(e: &Env) -> Address {
 
 // ── Public functions ─────────────────────────────────────────────────────────
 
-/// Create an escrow. #175 adds `memo: Bytes` — max 64 bytes.
+/// Create an escrow. 
+/// #175 enforces `memo: Bytes` — max 64 bytes.
+/// #269 enforces dynamic rate limiting based on block timestamp history.
 pub fn create_escrow(
     e: Env,
     depositor: Address,
@@ -64,6 +69,15 @@ pub fn create_escrow(
     memo: Bytes,
 ) -> u32 {
     depositor.require_auth();
+
+    // #269: Strict Anti-Spam Rate Limiting Guard Check
+    let rate_limit_key = DataKey::LastEscrowTime(depositor.clone());
+    let last_creation_time: u64 = e.storage().persistent().get(&rate_limit_key).unwrap_or(0);
+    let current_time = e.ledger().timestamp();
+
+    if last_creation_time > 0 && (current_time - last_creation_time) < ESCROW_COOLDOWN_SECONDS {
+        panic!("RateLimitExceeded: please wait before creating another escrow");
+    }
 
     // #175: enforce memo length limit with the exact panic string required
     if memo.len() > 64 {
@@ -100,15 +114,12 @@ pub fn create_escrow(
     };
 
     save_record(&e, &record);
-    append_escrow_id(&e, DataKey::DepositorEscrows(depositor), id);
+    append_escrow_id(&e, DataKey::DepositorEscrows(depositor.clone()), id);
     append_escrow_id(&e, DataKey::BeneficiaryEscrows(beneficiary), id);
 
-    e.storage()
-        .persistent()
-        .set(&DataKey::EscrowCount, &(id + 1));
-e.storage()
-        .persistent()
-        .set(&DataKey::EscrowCount, &(id + 1));
+    // Update state tracking counters and rate limit timestamps cleanly
+    e.storage().persistent().set(&DataKey::EscrowCount, &(id + 1));
+    e.storage().persistent().set(&rate_limit_key, &current_time);
 
     // #181: emit escrow_created event with memo for indexers
     e.events().publish(
@@ -162,8 +173,6 @@ pub fn release_escrow(e: Env, caller: Address, escrow_id: u32) {
 }
 
 /// #174: Partial release — caller must be the beneficiary.
-/// Releases `amount` of still-locked funds; marks fully released only when
-/// nothing remains.
 pub fn release_partial_escrow(e: Env, caller: Address, escrow_id: u32, amount: i128) {
     caller.require_auth();
 
@@ -219,7 +228,7 @@ pub fn refund_escrow(e: Env, caller: Address, escrow_id: u32) {
     record.refunded = true;
     save_record(&e, &record);
 
-   let token_client = token::Client::new(&e, &record.token);
+    let token_client = token::Client::new(&e, &record.token);
     token_client.transfer(
         &e.current_contract_address(),
         &record.depositor,

@@ -2,7 +2,7 @@
 mod admin_test {
     use soroban_sdk::{testutils::Address as _, testutils::Events as _, Address, Env, String};
 
-    use crate::admin::{has_admin, read_admin, transfer_admin, write_admin};
+    use crate::admin::{has_admin, transfer_admin, write_admin};
     use crate::contract::VeritixToken;
     use crate::contract::VeritixTokenClient;
 
@@ -80,7 +80,7 @@ mod admin_test {
     #[test]
     fn test_transfer_admin_emits_event() {
         let env = setup_env();
-        let (admin, client) = create_initialized_client(&env);
+        let (_admin, client) = create_initialized_client(&env);
         let new_admin = Address::generate(&env);
 
         // Clear any initialization events
@@ -94,7 +94,7 @@ mod admin_test {
         // The admin_set event topics: (symbol_short!("admin_set"), current_admin)
         // data: new_admin
         let event = events.first().unwrap();
-        assert_eq!(event.0.len(), 2);
+        assert_eq!(event.1.len(), 2);
     }
 
     // --- test_check_admin_wrong_address_panics ---
@@ -118,29 +118,25 @@ mod admin_test {
 
     #[test]
     fn test_transfer_admin() {
-        let env = Env::default();
-        let admin = Address::generate(&env);
+        let env = setup_env();
+        let (admin, client) = create_initialized_client(&env);
         let new_admin = Address::generate(&env);
 
-        write_admin(&env, &admin);
+        client.set_admin(&new_admin);
 
-        env.mock_all_auths();
-        transfer_admin(&env, new_admin.clone());
-
-        assert_eq!(read_admin(&env), new_admin);
+        assert_eq!(client.admin(), new_admin);
+        assert_ne!(client.admin(), admin);
     }
 
     // --- test_transfer_admin_to_same_address ---
 
     #[test]
     fn test_transfer_admin_to_same_address() {
-        let env = Env::default();
-        let admin = Address::generate(&env);
+        let env = setup_env();
+        let (admin, client) = create_initialized_client(&env);
 
-        write_admin(&env, &admin);
-        env.mock_all_auths();
-        transfer_admin(&env, admin.clone());
-        assert_eq!(read_admin(&env), admin);
+        client.set_admin(&admin);
+        assert_eq!(client.admin(), admin);
     }
 
     #[test]

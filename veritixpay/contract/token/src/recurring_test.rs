@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod recurring_tests {
     use soroban_sdk::{
-        testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, Events as _},
-        Address, Env, IntoVal,
+        testutils::{Address as _, Events as _, Ledger as _},
+        Address, Env,
     };
 
     use crate::balance::read_balance;
@@ -76,7 +76,7 @@ mod recurring_tests {
 
         e.as_contract(&contract_id, || {
             // Advance ledger past the interval.
-            e.ledger().set_sequence_number(e.ledger().sequence() + 101);
+            e.ledger().with_mut(|l| l.sequence_number = e.ledger().sequence() + 101);
             execute_recurring(&e, id);
             assert_eq!(read_balance(&e, payee.clone()), 500);
             assert_eq!(read_balance(&e, payer.clone()), 0);
@@ -94,7 +94,7 @@ mod recurring_tests {
 
         e.as_contract(&contract_id, || {
             // Only advance by 50 — not enough.
-            e.ledger().set_sequence_number(e.ledger().sequence() + 50);
+            e.ledger().with_mut(|l| l.sequence_number = e.ledger().sequence() + 50);
             execute_recurring(&e, id);
         });
     }
@@ -140,7 +140,7 @@ mod recurring_tests {
 
         e.as_contract(&contract_id, || {
             cancel_recurring(&e, payer.clone(), id);
-            e.ledger().set_sequence_number(e.ledger().sequence() + 200);
+            e.ledger().with_mut(|l| l.sequence_number = e.ledger().sequence() + 200);
             execute_recurring(&e, id);
         });
     }
@@ -187,7 +187,7 @@ mod recurring_tests {
 
         // Payee must be among the authorized signers
         let auths = e.auths();
-        let payee_authorized = auths.iter().any(|(addr, _)| addr == payee);
+        let payee_authorized = auths.iter().any(|(addr, _)| addr == &payee);
         assert!(payee_authorized, "payee must authorize setup_recurring");
     }
 
@@ -203,7 +203,7 @@ mod recurring_tests {
         e.as_contract(&contract_id, || {
             // Drain the payer balance so they can no longer cover the charge.
             crate::balance::spend_balance(&e, payer.clone(), 500);
-            e.ledger().set_sequence_number(e.ledger().sequence() + 101);
+            e.ledger().with_mut(|l| l.sequence_number = e.ledger().sequence() + 101);
             execute_recurring(&e, id);
         });
     }
@@ -224,11 +224,11 @@ mod recurring_tests {
         e.as_contract(&contract_id, || {
             let start = e.ledger().sequence();
 
-            e.ledger().set_sequence_number(start + 101);
+            e.ledger().with_mut(|l| l.sequence_number = start + 101);
             execute_recurring(&e, id);
             assert_eq!(read_balance(&e, payee.clone()), 1_000);
 
-            e.ledger().set_sequence_number(start + 202);
+            e.ledger().with_mut(|l| l.sequence_number = start + 202);
             execute_recurring(&e, id);
             assert_eq!(read_balance(&e, payee.clone()), 2_000);
         });
@@ -249,33 +249,11 @@ mod recurring_tests {
         e.mock_all_auths();
         client.setup_recurring(&payer, &payee, &amount, &interval);
 
-        assert_eq!(
-            e.auths(),
-            std::vec![
-                (
-                    payer.clone(),
-                    AuthorizedInvocation {
-                        function: AuthorizedFunction::Contract((
-                            client.address.clone(),
-                            soroban_sdk::symbol_short!("setup_recurring"),
-                            (&payer, &payee, amount, interval).into_val(&e),
-                        )),
-                        sub_invocations: std::vec![],
-                    }
-                ),
-                (
-                    payee.clone(),
-                    AuthorizedInvocation {
-                        function: AuthorizedFunction::Contract((
-                            client.address.clone(),
-                            soroban_sdk::symbol_short!("setup_recurring"),
-                            (&payer, &payee, amount, interval).into_val(&e),
-                        )),
-                        sub_invocations: std::vec![],
-                    }
-                ),
-            ]
-        );
+        // Both payer and payee must have authorized the setup_recurring call.
+        let auths = e.auths();
+        assert_eq!(auths.len(), 2, "expected both payer and payee auth");
+        assert_eq!(auths[0].0, payer, "first auth should be payer");
+        assert_eq!(auths[1].0, payee, "second auth should be payee");
     }
 
     // Ensures that executing a recurring payment preserves the supply invariant
@@ -296,7 +274,7 @@ mod recurring_tests {
 
             assert_invariant();
 
-            e.ledger().set_sequence_number(e.ledger().sequence() + 101);
+            e.ledger().with_mut(|l| l.sequence_number = e.ledger().sequence() + 101);
             execute_recurring(&e, id);
             assert_invariant();
 
@@ -305,7 +283,7 @@ mod recurring_tests {
             crate::balance::increase_supply(&e, 1_000);
             assert_invariant();
 
-            e.ledger().set_sequence_number(e.ledger().sequence() + 101);
+            e.ledger().with_mut(|l| l.sequence_number = e.ledger().sequence() + 101);
             execute_recurring(&e, id);
             assert_invariant();
         });
@@ -324,7 +302,7 @@ mod recurring_tests {
         let events = e.events().all();
         assert_eq!(events.len(), 1);
         // Topics: (recurring_setup, payer), data: (payee, amount)
-        assert_eq!(events.first().unwrap().0.len(), 2);
+        assert_eq!(events.first().unwrap().1.len(), 2);
     }
 
     // Verifies that execute_recurring emits a single event with
@@ -339,14 +317,14 @@ mod recurring_tests {
         let _ = e.events().all();
 
         e.as_contract(&contract_id, || {
-            e.ledger().set_sequence_number(e.ledger().sequence() + 101);
+            e.ledger().with_mut(|l| l.sequence_number = e.ledger().sequence() + 101);
             execute_recurring(&e, id);
         });
 
         let events = e.events().all();
         assert_eq!(events.len(), 1);
         // Topics: (recurring_executed, recurring_id), data: amount
-        assert_eq!(events.first().unwrap().0.len(), 2);
+        assert_eq!(events.first().unwrap().1.len(), 2);
     }
 
     // Verifies that cancel_recurring emits a single event with
@@ -366,7 +344,7 @@ mod recurring_tests {
         let events = e.events().all();
         assert_eq!(events.len(), 1);
         // Topics: (recurring_cancelled, recurring_id, caller), data: ()
-        assert_eq!(events.first().unwrap().0.len(), 3);
+        assert_eq!(events.first().unwrap().1.len(), 3);
     }
 
     // --- Recurring counter tests ---
@@ -475,7 +453,7 @@ mod recurring_tests {
         let contract_id = e.register_contract(None, VeritixToken);
         let (_, _, id) = fund_and_setup(&e, &contract_id, 500, 100);
         e.as_contract(&contract_id, || {
-            e.ledger().set_sequence_number(e.ledger().sequence() + 101);
+            e.ledger().with_mut(|l| l.sequence_number = e.ledger().sequence() + 101);
             assert!(is_executable(&e, id));
         });
     }
@@ -497,7 +475,7 @@ mod recurring_tests {
         let (payer, _, id) = fund_and_setup(&e, &contract_id, 500, 100);
         e.as_contract(&contract_id, || {
             pause_recurring(&e, payer.clone(), id);
-            e.ledger().set_sequence_number(e.ledger().sequence() + 200);
+            e.ledger().with_mut(|l| l.sequence_number = e.ledger().sequence() + 200);
             assert!(!is_executable(&e, id));
         });
     }

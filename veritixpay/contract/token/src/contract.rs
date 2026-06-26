@@ -1,4 +1,8 @@
 use crate::admin::{check_admin, has_admin, read_admin, transfer_admin, write_admin};
+use crate::allowance::{read_allowance, spend_allowance, validate_allowance, write_allowance};
+use crate::balance::{
+    decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance,
+    spend_balance,
 use crate::allowance::{get_allowances_for_spender, read_allowance, spend_allowance, write_allowance};
 use crate::balance::{decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance, spend_balance};
 use crate::batch::{clawback_batch, freeze_batch, unfreeze_batch};
@@ -11,7 +15,7 @@ use crate::escrow::{
     get_escrow as escrow_get, refund_escrow as escrow_refund, release_escrow as escrow_release,
     EscrowRecord,
 };
-use crate::freeze::{freeze_account, is_frozen as read_frozen_status, unfreeze_account};
+use crate::freeze::{freeze_account, get_frozen_accounts, is_frozen as read_frozen_status, unfreeze_account};
 use crate::metadata::{read_decimal, read_name, read_symbol, update_metadata_fields, validate_metadata, write_metadata, TokenMetadata};
 use crate::pause::{is_paused, pause, require_not_paused, unpause};
 use crate::recurring::{
@@ -110,6 +114,7 @@ impl VeritixToken {
     }
     pub fn burn_from(e: Env, spender: Address, from: Address, amount: i128) {
         spender.require_auth();
+        require_not_frozen_account(&e, &from);
         require_not_paused(&e);
         require_positive_amount(amount);
         spend_allowance(&e, from.clone(), spender.clone(), amount);
@@ -141,6 +146,10 @@ impl VeritixToken {
         require_not_paused(&e);
         require_not_frozen_account(&e, &from);
         require_positive_amount(amount);
+        // Validate allowance before requiring auth: a definitely-failing call must not emit an auth event.
+        validate_allowance(&e, from.clone(), spender.clone(), amount);
+        spender.require_auth();
+        spend_allowance(&e, from.clone(), spender.clone(), amount);
         spend_allowance(&e, from.clone(), spender, amount);
         spend_balance(&e, from.clone(), amount);
         receive_balance(&e, to.clone(), amount);
@@ -189,6 +198,9 @@ impl VeritixToken {
     }
     pub fn is_frozen(e: Env, id: Address) -> bool {
         read_frozen_status(&e, &id)
+    }
+    pub fn frozen_accounts(e: Env) -> Vec<Address> {
+        get_frozen_accounts(&e)
     }
     pub fn decimals(e: Env) -> u32 {
         read_decimal(&e)
