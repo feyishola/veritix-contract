@@ -21,6 +21,17 @@ jobs:
         run: make preflight
       - name: Build
         run: make build
+      - name: Check WASM size (max 100KB)
+        run: |
+          wasm_file=$(ls ../../target/wasm32v1-none/release/*.wasm | head -1)
+          size=$(stat -c%s "$wasm_file" 2>/dev/null || stat -f%z "$wasm_file" 2>/dev/null)
+          max_size=$((100 * 1024))
+          echo "WASM size: $size bytes"
+          if [ "$size" -gt "$max_size" ]; then
+            echo "❌ WASM size $size bytes exceeds 100KB limit"
+            exit 1
+          fi
+          echo "✅ WASM size OK ($size bytes)"
       - name: Test
         run: make test
       - name: Install cargo-llvm-cov
