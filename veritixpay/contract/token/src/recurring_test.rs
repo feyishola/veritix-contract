@@ -488,4 +488,39 @@ mod recurring_tests {
             assert!(!is_executable(&e, 999));
         });
     }
+
+    #[test]
+    fn test_recurring_payee_is_contract_address() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let payer = Address::generate(&e);
+
+        // Register a second VeritixToken contract as the payee
+        let payee_contract_id = e.register_contract(None, VeritixToken);
+        let payee_client = crate::contract::VeritixTokenClient::new(&e, &payee_contract_id);
+        let payee_admin = Address::generate(&e);
+        payee_client.initialize(
+            &payee_admin,
+            &soroban_sdk::String::from_str(&e, "PayeeToken"),
+            &soroban_sdk::String::from_str(&e, "PAY"),
+            &7u32,
+        );
+
+        let mut recurring_id = 0u32;
+        e.as_contract(&contract_id, || {
+            crate::balance::receive_balance(&e, payer.clone(), 1_000);
+            crate::balance::increase_supply(&e, 1_000);
+
+            // Use the payee contract address as the payee
+            recurring_id = setup_recurring(&e, payer.clone(), payee_contract_id.clone(), 500, 100);
+        });
+
+        e.as_contract(&contract_id, || {
+            e.ledger().with_mut(|l| l.sequence_number = e.ledger().sequence() + 101);
+            execute_recurring(&e, recurring_id);
+        });
+
+        // Verify the payee contract received the tokens
+        assert_eq!(payee_client.balance(&payee_contract_id), 500i128);
+    }
 }

@@ -10,6 +10,7 @@ use soroban_sdk::{contracttype, symbol_short, vec, Address, Bytes, Env, Vec};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DisputeStatus {
     Open,
+    Appealed,
     ResolvedForBeneficiary,
     ResolvedForDepositor,
     Expired,
@@ -27,6 +28,7 @@ pub struct DisputeRecord {
     pub opened_at_ledger: u32,
     pub expiry_ledger: u32,
     pub resolution_note: Bytes,
+    pub appeal_resolver: Option<Address>,
 }
 
 fn bump_dispute(e: &Env, key: &DataKey) {
@@ -94,6 +96,7 @@ pub fn open_dispute(e: &Env, claimant: Address, escrow_id: u32, resolver: Addres
         status: DisputeStatus::Open, evidence: evidence.clone(),
         opened_at_ledger: current, expiry_ledger,
         resolution_note: Bytes::new(e),
+        appeal_resolver: None,
     };
     let dispute_key = DataKey::Dispute(count);
     e.storage().persistent().set(&dispute_key, &record);
@@ -167,6 +170,66 @@ pub fn get_dispute(e: &Env, dispute_id: u32) -> DisputeRecord {
 pub fn get_dispute_history_for_escrow(e: &Env, escrow_id: u32) -> Vec<u32> {
     let key = DataKey::EscrowDisputeHistory(escrow_id);
     e.storage().persistent().get(&key).unwrap_or_else(|| vec![e])
+}
+
+pub fn appeal_dispute(e: &Env, caller: Address, dispute_id: u32, appeal_resolver: Address) {
+    let dispute_key = DataKey::Dispute(dispute_id);
+    let mut dispute: DisputeRecord = e.storage().persistent().get(&dispute_key).expect("Dispute not found");
+    bump_dispute(e, &dispute_key);
+    if dispute.status != DisputeStatus::ResolvedForBeneficiary && dispute.status != DisputeStatus::ResolvedForDepositor {
+        panic!("NotResolved: dispute must be resolved before it can be appealed");
+    }
+    if dispute.claimant != caller {
+        panic!("Unauthorized: only the claimant can appeal");
+    }
+    caller.require_auth();
+    if appeal_resolver == dispute.claimant {
+        panic!("InvalidResolver: resolver cannot be the claimant");
+    }
+    if appeal_resolver == dispute.resolver {
+        panic!("InvalidResolver: resolver cannot be the original resolver");
+    }
+    dispute.status = DisputeStatus::Appealed;
+    dispute.appeal_resolver = Some(appeal_resolver.clone());
+    e.storage().persistent().set(&dispute_key, &dispute);
+    bump_dispute(e, &dispute_key);
+    e.events().publish((symbol_short!("disp_appl"), dispute_id, caller.clone()), appeal_resolver);
+}
+
+pub fn resolve_appeal(e: &Env, resolver: Address, dispute_id: u32, overturn: bool) {
+    let dispute_key = DataKey::Dispute(dispute_id);
+    let mut dispute: DisputeRecord = e.storage().persistent().get(&dispute_key).expect("Dispute not found");
+    bump_dispute(e, &dispute_key);
+    if dispute.status != DisputeStatus::Appealed {
+        panic!("NotAppealed: dispute is not in appealed state");
+    }
+    let appeal_resolver = dispute.appeal_resolver.as_ref().expect("no appeal resolver set");
+    if appeal_resolver != &resolver {
+        panic!("UnauthorizedResolver: only the appeal resolver can resolve this appeal");
+    }
+    resolver.require_auth();
+    let escrow = crate::escrow::get_escrow(e, dispute.escrow_id);
+    if overturn {
+        let original_release_to_beneficiary = escrow.released;
+        // Reverse the original settlement: move funds back
+        if original_release_to_beneficiary {
+            crate::balance::spend_balance(e, escrow.beneficiary.clone(), escrow.amount);
+            crate::balance::receive_balance(e, escrow.depositor.clone(), escrow.amount);
+            dispute.status = DisputeStatus::ResolvedForDepositor;
+        } else {
+            crate::balance::spend_balance(e, escrow.depositor.clone(), escrow.amount);
+            crate::balance::receive_balance(e, escrow.beneficiary.clone(), escrow.amount);
+            dispute.status = DisputeStatus::ResolvedForBeneficiary;
+        }
+        let mut updated_escrow = escrow;
+        updated_escrow.released = !original_release_to_beneficiary;
+        updated_escrow.refunded = original_release_to_beneficiary;
+        crate::storage_types::write_persistent_record(e, &DataKey::Escrow(dispute.escrow_id), &updated_escrow);
+    }
+    dispute.appeal_resolver = None;
+    e.storage().persistent().set(&dispute_key, &dispute);
+    bump_dispute(e, &dispute_key);
+    e.events().publish((symbol_short!("disp_aprl"), dispute_id, resolver), overturn);
 }
 
 pub fn get_open_disputes(e: &Env) -> Vec<u32> {

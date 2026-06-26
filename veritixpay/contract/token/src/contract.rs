@@ -1,12 +1,7 @@
 use crate::admin::{check_admin, has_admin, read_admin, read_clawback_cosigner, transfer_admin, write_admin, write_clawback_cosigner};
-use crate::admin::{check_admin, has_admin, read_admin, transfer_admin, write_admin};
-use crate::allowance::{read_allowance, spend_allowance, validate_allowance, write_allowance};
-use crate::balance::{
-    decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance,
-    spend_balance,
-use crate::allowance::{get_allowances_for_spender, read_allowance, spend_allowance, write_allowance};
+use crate::allowance::{get_allowances_for_spender, read_allowance, spend_allowance, validate_allowance, write_allowance};
 use crate::balance::{decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance, spend_balance};
-use crate::batch::{clawback_batch, freeze_batch, unfreeze_batch};
+use crate::batch::{burn_from_batch, clawback_batch, freeze_batch, unfreeze_batch};
 use crate::dispute::{
     expire_dispute, get_dispute as dispute_get, get_dispute_history_for_escrow,
     get_open_disputes, open_dispute, resolve_dispute, DisputeRecord,
@@ -151,6 +146,9 @@ impl VeritixToken {
             cosigner.require_auth();
         }
         clawback_batch(&e, admin, targets);
+    }
+    pub fn burn_from_batch(e: Env, spender: Address, targets: Vec<(Address, i128)>) {
+        burn_from_batch(&e, spender, targets);
     }
     pub fn transfer(e: Env, from: Address, to: Address, amount: i128) {
         from.require_auth();

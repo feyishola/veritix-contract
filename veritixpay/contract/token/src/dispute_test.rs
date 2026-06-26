@@ -463,3 +463,40 @@ fn test_expire_dispute_before_expiry_panics() {
         expire_dispute(&e, dispute_id);
     });
 }
+
+#[test]
+fn test_full_dispute_lifecycle_with_appeal() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver_1 = Address::generate(&e);
+    let resolver_2 = Address::generate(&e);
+    let (depositor, beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
+
+    e.as_contract(&contract_id, || {
+        // Depositor opens dispute against beneficiary
+        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver_1.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
+
+        // Resolver_1 resolves for beneficiary (depositor loses)
+        resolve_dispute(&e, resolver_1.clone(), dispute_id, true);
+        let record = crate::dispute::get_dispute(&e, dispute_id);
+        assert_eq!(record.status, DisputeStatus::ResolvedForBeneficiary);
+        assert_eq!(crate::balance::read_balance(&e, beneficiary.clone()), 1_000);
+
+        // Depositor appeals, appoints resolver_2
+        crate::dispute::appeal_dispute(&e, depositor.clone(), dispute_id, resolver_2.clone());
+        let record = crate::dispute::get_dispute(&e, dispute_id);
+        assert_eq!(record.status, DisputeStatus::Appealed);
+        assert_eq!(record.appeal_resolver, Some(resolver_2.clone()));
+
+        // Resolver_2 overturns: resolves for depositor
+        crate::dispute::resolve_appeal(&e, resolver_2.clone(), dispute_id, true);
+        let record = crate::dispute::get_dispute(&e, dispute_id);
+        assert_eq!(record.status, DisputeStatus::ResolvedForDepositor);
+
+        // Depositor gets full refund
+        assert_eq!(crate::balance::read_balance(&e, depositor.clone()), 1_000);
+        // Escrow is fully settled
+        let escrow = crate::escrow::get_escrow(&e, escrow_id);
+        assert!(escrow.refunded);
+    });
+}
