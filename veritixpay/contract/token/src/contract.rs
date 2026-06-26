@@ -69,6 +69,21 @@ impl VeritixToken {
         validate_metadata(&metadata);
         write_metadata(&e, metadata);
         write_admin(&e, &admin);
+        e.storage().instance().set(&DataKey::MaxSupply, &0i128);
+        e.events().publish(
+            (symbol_short!("initialized"), admin),
+            (name, symbol, decimal),
+        );
+    }
+    pub fn initialize_with_max_supply(e: Env, admin: Address, name: String, symbol: String, decimal: u32, max_supply: i128) {
+        if has_admin(&e) {
+            panic!("AlreadyInitialized");
+        }
+        let metadata = TokenMetadata { name: name.clone(), symbol: symbol.clone(), decimal };
+        validate_metadata(&metadata);
+        write_metadata(&e, metadata);
+        write_admin(&e, &admin);
+        e.storage().instance().set(&DataKey::MaxSupply, &max_supply);
         e.events().publish(
             (symbol_short!("initialized"), admin),
             (name, symbol, decimal),
@@ -220,6 +235,9 @@ impl VeritixToken {
     pub fn total_supply(e: Env) -> i128 {
         read_total_supply(&e)
     }
+    pub fn max_supply(e: Env) -> i128 {
+        read_max_supply(&e)
+    }
     pub fn balance(e: Env, id: Address) -> i128 {
         read_balance(&e, id)
     }
@@ -236,6 +254,31 @@ impl VeritixToken {
     }
     pub fn is_frozen(e: Env, id: Address) -> bool {
         read_frozen_status(&e, &id)
+    }
+    pub fn is_frozen_batch(e: Env, addresses: Vec<Address>) -> Vec<bool> {
+        let mut result: Vec<bool> = Vec::new(&e);
+        for i in 0..addresses.len() {
+            let addr = addresses.get(i).unwrap();
+            result.push_back(read_frozen_status(&e, &addr));
+        }
+        result
+    }
+    pub fn total_holders(e: Env) -> u32 {
+        let key = DataKey::HolderSet;
+        let holders: Vec<Address> = e.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(&e));
+        holders.len()
+    }
+    pub fn get_holders(e: Env, offset: u32, limit: u32) -> Vec<Address> {
+        let key = DataKey::HolderSet;
+        let all: Vec<Address> = e.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(&e));
+        let mut result: Vec<Address> = Vec::new(&e);
+        let end = (offset + limit).min(all.len());
+        let mut i = offset;
+        while i < end {
+            result.push_back(all.get(i).unwrap());
+            i += 1;
+        }
+        result
     }
     pub fn frozen_accounts(e: Env) -> Vec<Address> {
         get_frozen_accounts(&e)
