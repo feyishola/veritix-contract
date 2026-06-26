@@ -8,7 +8,7 @@ pub struct EscrowContract;
 
 #[contractimpl]
 impl EscrowContract {
-    /// Initializes the global escrow contract configuration state.
+    /// Initializes the global escrow contract configuration state
     ///
     /// # Arguments
     /// * `env` - The current execution environment.
