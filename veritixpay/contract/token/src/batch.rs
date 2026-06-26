@@ -1,8 +1,10 @@
 use crate::admin::check_admin;
+use crate::allowance;
+use crate::allowance::write_allowance;
 use crate::balance::{decrease_supply, increase_supply, receive_balance, spend_balance};
 use crate::freeze::{freeze_account, unfreeze_account};
 use crate::validation::require_positive_amount;
-use soroban_sdk::{contracttype, symbol_short, Address, Env, Vec};
+use soroban_sdk::{contracttype, symbol_short, Address, Bytes, Env, Vec};
 
 const MAX_BATCH_TARGETS: u32 = 50;
 
@@ -84,4 +86,40 @@ pub fn transfer_batch(e: &Env, from: Address, recipients: Vec<BatchEntry>) {
         receive_balance(e, entry.address.clone(), entry.amount);
     }
     e.events().publish((symbol_short!("btch_xfer"), from), total);
+}
+
+const MAX_APPROVE_BATCH: u32 = 20;
+
+pub fn approve_batch(e: &Env, from: Address, approvals: Vec<(Address, i128, u32)>) {
+    from.require_auth();
+    if approvals.len() > MAX_APPROVE_BATCH {
+        panic!("batch too large");
+    }
+    for i in 0..approvals.len() {
+        let (spender, amount, expiration_ledger) = approvals.get(i).unwrap();
+        write_allowance(e, from.clone(), spender, amount, expiration_ledger);
+        e.events().publish((symbol_short!("approve"), from.clone(), spender), amount);
+    }
+}
+
+pub fn transfer_batch_with_memo(e: &Env, from: Address, recipients: Vec<(Address, i128, Bytes)>) {
+    from.require_auth();
+    if recipients.len() > MAX_BATCH_TARGETS {
+        panic!("batch too large");
+    }
+    let mut total: i128 = 0;
+    for i in 0..recipients.len() {
+        let (_, amount, memo) = recipients.get(i).unwrap();
+        require_positive_amount(amount);
+        if memo.len() > 64 {
+            panic!("memo too long");
+        }
+        total = total.checked_add(amount).expect("overflow");
+    }
+    spend_balance(e, from.clone(), total);
+    for i in 0..recipients.len() {
+        let (to, amount, memo) = recipients.get(i).unwrap();
+        receive_balance(e, to.clone(), amount);
+        e.events().publish((symbol_short!("xfer_memo"), from.clone(), to), (amount, memo));
+    }
 }
