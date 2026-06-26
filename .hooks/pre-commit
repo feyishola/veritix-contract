@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Pre-commit hook — run fmt and clippy before every commit.
+# Install via `make install-hooks` from veritixpay/contract/token/.
+set -e
+
+# Git hooks run from the repo root; cd into the token crate directory.
+cd veritixpay/contract/token
+
+echo "🔍 Running cargo fmt..."
+cargo fmt --all --check
+
+echo "🔍 Running cargo clippy..."
+cargo clippy --all -- -D warnings
+
+echo "✅ Pre-commit checks passed!"

@@ -1,14 +1,20 @@
-use soroban_sdk::{Address, Env};
+//! Admin module.
+//! Owns admin identity storage, authorization checks, and rotation events.
+//! `check_admin` requires signer auth first, then identity match, to prevent spoofed caller paths.
 
-use crate::storage_types::DataKey;
+use soroban_sdk::{symbol_short, Address, Env};
+
+use crate::storage_types::{bump_instance, DataKey};
 
 // --- Core admin storage helpers ---
 
 pub fn read_admin(e: &Env) -> Address {
+    bump_instance(e);
     e.storage().instance().get(&DataKey::Admin).unwrap()
 }
 
 pub fn write_admin(e: &Env, id: &Address) {
+    bump_instance(e);
     e.storage().instance().set(&DataKey::Admin, id);
 }
 
@@ -30,4 +36,8 @@ pub fn transfer_admin(e: &Env, new_admin: Address) {
     let current_admin = read_admin(e);
     current_admin.require_auth();
     write_admin(e, &new_admin);
+    e.events().publish(
+        (symbol_short!("admin_set"), current_admin),
+        new_admin,
+    );
 }

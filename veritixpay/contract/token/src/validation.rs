@@ -1,3 +1,7 @@
+//! Validation guard module.
+//! Contains reusable guards for strings, numeric ranges, ledger windows, and freeze-state checks.
+//! These validators enforce consistent panic semantics across token, escrow, recurring, and split flows.
+
 use soroban_sdk::{Address, Env, String};
 
 pub fn require_nonempty_string(value: &String, message: &'static str) {

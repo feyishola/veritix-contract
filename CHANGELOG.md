@@ -1,0 +1,58 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
+for contract upgrades.
+
+> **Semantic versioning note:** Breaking changes to the contract ABI (function
+> signatures, event topics, storage keys) increment the **major** version.
+> Additive changes (new functions, new events, new optional memo fields)
+> increment the **minor** version. Internal refactors and dependency bumps
+> increment the **patch** version.
+
+## [Unreleased]
+
+### Added
+
+- Pre-commit hook (`make install-hooks`) running `cargo fmt` and `cargo clippy` before every commit.
+- CHANGELOG.md tracking all significant changes per release.
+- Inline doc comments explaining the purpose of each test scenario across all test files.
+- Architecture document (`docs/architecture.md`) covering module responsibilities,
+  data flow, storage layout, auth model, events, and integration points.
+
+### Changed
+
+- CONTRIBUTING.md updated with pre-commit hook setup instructions.
+
+## [0.1.0] — 2026-Q1
+
+Full-featured token contract with escrow, dispute resolution, split payments,
+recurring payments, admin controls, freeze/clawback, batch operations, pause,
+allowance index, transfer memo, metadata update, and TTL bump hardening.
+
+### Added
+
+- Token core: `initialize`, `mint`, `burn`, `burn_from`, `transfer`, `transfer_from`,
+  `transfer_with_memo`, `approve`, `allowance`, `total_supply`, `balance`.
+- Admin rotation (`set_admin`) and metadata update (`update_metadata`).
+- Freeze/unfreeze, freeze_batch/unfreeze_batch.
+- Clawback and clawback_batch.
+- Escrow: create, release, refund, partial release, admin settle.
+- Dispute resolution: open, resolve, resolve_with_note, appeal, history tracking.
+- Split payments: create, distribute, cancel, bulk distribute, split-with-escrow,
+  split-with-memo.
+- Recurring payments: setup, execute, cancel, amend, pause/resume, payer index.
+- Batch mint and batch transfer (up to 50 recipients).
+- Event emission for all state-changing operations.
+- Allowance spender index (`allowances_for_spender`).
+- Token info view combining metadata + supply.
+- Admin info view.
+- Storage TTL bump hardening for balance, allowance, escrow, split, recurring,
+  dispute, and instance keys.
+- CI pipeline with `cargo test`, `cargo fmt --check`, and `cargo clippy`.
+- Snapshot-based test coverage reporting.
+
+[Unreleased]: https://github.com/Lead-Studios/veritix-contract/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Lead-Studios/veritix-contract/releases/tag/v0.1.0
