@@ -15,7 +15,7 @@ use crate::escrow::{
     get_escrow as escrow_get, refund_escrow as escrow_refund, release_escrow as escrow_release,
     EscrowRecord,
 };
-use crate::freeze::{freeze_account, is_frozen as read_frozen_status, unfreeze_account};
+use crate::freeze::{freeze_account, get_frozen_accounts, is_frozen as read_frozen_status, unfreeze_account};
 use crate::metadata::{read_decimal, read_name, read_symbol, update_metadata_fields, validate_metadata, write_metadata, TokenMetadata};
 use crate::pause::{is_paused, pause, require_not_paused, unpause};
 use crate::recurring::{
@@ -188,6 +188,9 @@ impl VeritixToken {
     }
     pub fn is_frozen(e: Env, id: Address) -> bool {
         read_frozen_status(&e, &id)
+    }
+    pub fn frozen_accounts(e: Env) -> Vec<Address> {
+        get_frozen_accounts(&e)
     }
     pub fn decimals(e: Env) -> u32 {
         read_decimal(&e)

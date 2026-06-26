@@ -776,3 +776,62 @@ fn test_set_admin_emits_event() {
     // Topics: (admin_set, current_admin), data: new_admin
     assert_eq!(events.last().unwrap().1.len(), 2);
 }
+
+#[test]
+fn test_frozen_accounts_empty_initially() {
+    let (env, admin, _user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+
+    let frozen = client.frozen_accounts();
+    assert_eq!(frozen.len(), 0, "expected no frozen accounts after initialize");
+}
+
+#[test]
+fn test_frozen_accounts_adds_on_freeze_removes_on_unfreeze() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let user2 = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+
+    assert_eq!(client.frozen_accounts().len(), 0);
+
+    client.freeze(&user);
+    let after_first = client.frozen_accounts();
+    assert_eq!(after_first.len(), 1);
+    assert!(after_first.contains(&user));
+
+    client.freeze(&user2);
+    let after_second = client.frozen_accounts();
+    assert_eq!(after_second.len(), 2);
+    assert!(after_second.contains(&user));
+    assert!(after_second.contains(&user2));
+
+    client.unfreeze(&user);
+    let after_unfreeze = client.frozen_accounts();
+    assert_eq!(after_unfreeze.len(), 1);
+    assert!(!after_unfreeze.contains(&user));
+    assert!(after_unfreeze.contains(&user2));
+}
+
+#[test]
+fn test_frozen_accounts_duplicate_freeze_is_idempotent() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+
+    client.freeze(&user);
+    client.freeze(&user);
+
+    assert_eq!(
+        client.frozen_accounts().len(),
+        1,
+        "duplicate freeze must not add the address twice"
+    );
+}
