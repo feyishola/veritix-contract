@@ -6,7 +6,7 @@ use crate::admin::check_admin;
 use crate::balance::{receive_balance, spend_balance};
 use crate::storage_types::{
     increment_counter, read_persistent_record, write_persistent_record, DataKey,
-    ESCROW_BUMP_AMOUNT, ESCROW_LIFETIME_THRESHOLD,
+    ESCROW_BUMP_AMOUNT, ESCROW_LIFETIME_THRESHOLD, WARNING_WINDOW,
 };
 use crate::validation::{require_current_or_future_ledger, require_positive_amount};
 use soroban_sdk::{contracttype, symbol_short, Address, Env};
@@ -170,11 +170,25 @@ pub fn try_get_escrow(e: &Env, escrow_id: u32) -> Result<EscrowRecord, &'static 
         e.storage()
             .persistent()
             .extend_ttl(&key, ESCROW_LIFETIME_THRESHOLD, ESCROW_BUMP_AMOUNT);
-        Ok(read_persistent_record(
+        let record: EscrowRecord = read_persistent_record(
             e,
             &key,
             "escrow not found",
-        ))
+        );
+        if !record.released && !record.refunded {
+            let warned_key = DataKey::ExpiryWarned(escrow_id);
+            if !e.storage().instance().has(&warned_key)
+                && record.expiry_ledger >= e.ledger().sequence()
+                && record.expiry_ledger - e.ledger().sequence() < WARNING_WINDOW
+            {
+                e.storage().instance().set(&warned_key, &true);
+                e.events().publish(
+                    (symbol_short!("expir_warn"), escrow_id),
+                    (record.expiry_ledger, e.ledger().sequence()),
+                );
+            }
+        }
+        Ok(record)
     } else {
         Err("escrow not found")
     }

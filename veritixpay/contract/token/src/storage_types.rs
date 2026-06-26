@@ -26,6 +26,7 @@ pub const DISPUTE_LIFETIME_THRESHOLD: u32 = PERSISTENT_LIFETIME_THRESHOLD;
 pub const DISPUTE_BUMP_AMOUNT: u32 = PERSISTENT_BUMP_AMOUNT;
 pub const ESCROW_LIFETIME_THRESHOLD: u32 = 7_884_000;
 pub const ESCROW_BUMP_AMOUNT: u32 = 7_900_000;
+pub const WARNING_WINDOW: u32 = 1000;
 
 #[derive(Clone)]
 #[contracttype]
@@ -68,6 +69,7 @@ pub enum DataKey {
     ClawbackCoSigner,
     HolderSet,
     PendingAdmin,
+    ExpiryWarned(u32),
     Nonce(Address),
 }
 
