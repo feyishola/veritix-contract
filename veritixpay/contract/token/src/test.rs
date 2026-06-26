@@ -553,6 +553,50 @@ fn test_frozen_account_can_receive_from_escrow_release() {
     assert_eq!(client.balance(&beneficiary), 1_000i128);
 }
 
+#[test]
+#[should_panic(
+    expected = "InvalidRecipient: cannot transfer directly to the contract address — use create_escrow instead"
+)]
+fn test_mint_to_self_panics() {
+    let (env, admin, _user) = setup();
+    env.mock_all_auths();
+    let (contract_id, client) = create_client_with_id(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &contract_id, &1000);
+}
+
+#[test]
+#[should_panic(
+    expected = "InvalidRecipient: cannot transfer directly to the contract address — use create_escrow instead"
+)]
+fn test_transfer_to_self_panics() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let (contract_id, client) = create_client_with_id(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1000);
+    client.transfer(&user, &contract_id, &500);
+}
+
+#[test]
+#[should_panic(
+    expected = "InvalidRecipient: cannot transfer directly to the contract address — use create_escrow instead"
+)]
+fn test_transfer_from_to_self_panics() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let (contract_id, client) = create_client_with_id(&env);
+    let spender = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1000);
+    client.approve(&user, &spender, &500, &100);
+    client.transfer_from(&spender, &user, &contract_id, &500);
+}
+
+
 // Verifies that transfer_from rejects an expired allowance BEFORE requiring the spender's
 // auth signature. A call that will definitely fail should not emit an auth event.
 #[test]
