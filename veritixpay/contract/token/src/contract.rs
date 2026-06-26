@@ -1,4 +1,7 @@
 use crate::admin::{check_admin, has_admin, read_admin, read_clawback_cosigner, transfer_admin, write_admin, write_clawback_cosigner};
+use crate::allowance::{get_allowances_for_spender, read_allowance, revoke_all_allowances, spend_allowance, validate_allowance, write_allowance};
+use crate::balance::{decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance, spend_balance};
+use crate::batch::{approve_batch, clawback_batch, freeze_batch, transfer_batch_with_memo, unfreeze_batch};
 use crate::allowance::{get_allowances_for_spender, read_allowance, spend_allowance, validate_allowance, write_allowance};
 use crate::balance::{decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance, spend_balance};
 use crate::batch::{burn_from_batch, clawback_batch, freeze_batch, unfreeze_batch};
@@ -206,6 +209,12 @@ impl VeritixToken {
     pub fn unfreeze_batch(e: Env, admin: Address, targets: Vec<Address>) {
         unfreeze_batch(&e, admin, targets);
     }
+    pub fn approve_batch(e: Env, from: Address, approvals: Vec<(Address, i128, u32)>) {
+        approve_batch(&e, from, approvals);
+    }
+    pub fn transfer_batch_with_memo(e: Env, from: Address, recipients: Vec<(Address, i128, Bytes)>) {
+        transfer_batch_with_memo(&e, from, recipients);
+    }
 
     // --- Views ---
     pub fn total_supply(e: Env) -> i128 {
@@ -213,6 +222,14 @@ impl VeritixToken {
     }
     pub fn balance(e: Env, id: Address) -> i128 {
         read_balance(&e, id)
+    }
+    pub fn balance_of_batch(e: Env, addresses: Vec<Address>) -> Vec<i128> {
+        let mut balances: Vec<i128> = Vec::new(&e);
+        for i in 0..addresses.len() {
+            let addr = addresses.get(i).unwrap();
+            balances.push_back(read_balance(&e, addr));
+        }
+        balances
     }
     pub fn allowance(e: Env, from: Address, spender: Address) -> i128 {
         read_allowance(&e, from, spender).amount
@@ -234,6 +251,9 @@ impl VeritixToken {
     }
     pub fn get_allowances_for_spender(e: Env, spender: Address) -> Vec<Address> {
         get_allowances_for_spender(&e, spender)
+    }
+    pub fn revoke_all_allowances(e: Env, from: Address) {
+        revoke_all_allowances(&e, from);
     }
     pub fn token_info(e: Env) -> TokenInfo {
         TokenInfo {
