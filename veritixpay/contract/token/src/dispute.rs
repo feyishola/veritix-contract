@@ -82,7 +82,7 @@ pub fn open_dispute(e: &Env, claimant: Address, escrow_id: u32, resolver: Addres
     if expiry_ledger <= current { panic!("InvalidExpiry: expiry_ledger must be in the future"); }
     let escrow = get_escrow(e, escrow_id);
     if escrow.released || escrow.refunded { panic!("InvalidState: Cannot open dispute on a settled escrow"); }
-    if claimant != escrow.depositor && claimant != escrow.beneficiary { panic!("Unauthorized: Only depositor or beneficiary can open a dispute"); }
+    if claimant != escrow.depositor && claimant != escrow.beneficiary { panic!("Unauthorized: only escrow parties can open a dispute"); }
     if resolver == claimant { panic!("InvalidResolver: resolver cannot be the claimant"); }
     if resolver == escrow.depositor { panic!("InvalidResolver: resolver cannot be the depositor"); }
     if resolver == escrow.beneficiary { panic!("InvalidResolver: resolver cannot be the beneficiary"); }
