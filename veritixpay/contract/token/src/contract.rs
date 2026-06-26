@@ -1,3 +1,4 @@
+use crate::admin::{check_admin, has_admin, read_admin, read_clawback_cosigner, transfer_admin, write_admin, write_clawback_cosigner};
 use crate::admin::{check_admin, has_admin, read_admin, transfer_admin, write_admin};
 use crate::allowance::{read_allowance, spend_allowance, validate_allowance, write_allowance};
 use crate::balance::{
@@ -122,14 +123,26 @@ impl VeritixToken {
         decrease_supply(&e, amount);
         e.events().publish((symbol_short!("burn_from"), spender), (from, amount));
     }
+    pub fn set_clawback_cosigner(e: Env, admin: Address, cosigner: Address) {
+        check_admin(&e, &admin);
+        write_clawback_cosigner(&e, &cosigner);
+        e.events().publish((symbol_short!("cosigner"), admin), cosigner);
+    }
     pub fn clawback(e: Env, admin: Address, from: Address, amount: i128) {
         check_admin(&e, &admin);
+        if let Some(cosigner) = read_clawback_cosigner(&e) {
+            cosigner.require_auth();
+        }
         require_positive_amount(amount);
         spend_balance(&e, from.clone(), amount);
         decrease_supply(&e, amount);
         e.events().publish((symbol_short!("clawback"), admin), (from, amount));
     }
     pub fn clawback_batch(e: Env, admin: Address, targets: Vec<(Address, i128)>) {
+        check_admin(&e, &admin);
+        if let Some(cosigner) = read_clawback_cosigner(&e) {
+            cosigner.require_auth();
+        }
         clawback_batch(&e, admin, targets);
     }
     pub fn transfer(e: Env, from: Address, to: Address, amount: i128) {

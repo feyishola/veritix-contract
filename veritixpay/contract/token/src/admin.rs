@@ -31,6 +31,15 @@ pub fn check_admin(e: &Env, admin: &Address) {
     }
 }
 
+pub fn read_clawback_cosigner(e: &Env) -> Option<Address> {
+    e.storage().instance().get(&DataKey::ClawbackCoSigner)
+}
+
+pub fn write_clawback_cosigner(e: &Env, cosigner: &Address) {
+    bump_instance(e);
+    e.storage().instance().set(&DataKey::ClawbackCoSigner, cosigner);
+}
+
 /// Rotates the stored admin to `new_admin`. Must be called by the current admin.
 pub fn transfer_admin(e: &Env, new_admin: Address) {
     let current_admin = read_admin(e);

@@ -53,6 +53,7 @@ pub enum DataKey {
     Freeze(Address),
     FrozenAccounts,
     Paused,
+    ClawbackCoSigner,
 }
 
 pub fn read_persistent_record<T>(e: &Env, key: &DataKey, missing_message: &'static str) -> T
