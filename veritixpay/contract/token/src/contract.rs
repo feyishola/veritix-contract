@@ -100,6 +100,7 @@ impl VeritixToken {
     }
     pub fn burn_from(e: Env, spender: Address, from: Address, amount: i128) {
         spender.require_auth();
+        require_not_frozen_account(&e, &from);
         require_not_paused(&e);
         require_positive_amount(amount);
         spend_allowance(&e, from.clone(), spender.clone(), amount);
