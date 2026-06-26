@@ -19,8 +19,8 @@ use crate::metadata::{read_decimal, read_name, read_symbol, update_metadata_fiel
 use crate::pause::{is_paused, pause, require_not_paused, unpause};
 use crate::recurring::{
     amend_recurring, cancel_recurring, execute_recurring, get_next_execution_ledger,
-    get_recurring, get_recurring_by_payer, is_executable, pause_recurring, resume_recurring,
-    setup_recurring, RecurringRecord,
+    get_recurring, get_recurring_by_payer, is_executable, pause_recurring,
+    recurring_count_for_payer, resume_recurring, setup_recurring, RecurringRecord,
 };
 use crate::splitter::{
     cancel_split as split_cancel, create_split as split_create, distribute as split_distribute,
@@ -406,6 +406,9 @@ impl VeritixToken {
     }
     pub fn get_recurring_by_payer(e: Env, payer: Address) -> Vec<u32> {
         get_recurring_by_payer(&e, payer)
+    }
+    pub fn recurring_count_for_payer(e: Env, payer: Address) -> u32 {
+        recurring_count_for_payer(&e, payer)
     }
     pub fn recurring_count(e: Env) -> u32 {
         crate::storage_types::bump_instance(&e);
