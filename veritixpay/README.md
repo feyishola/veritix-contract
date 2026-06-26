@@ -21,8 +21,6 @@ Escrow uses the contract address itself as the temporary holder of escrowed fund
 | `Allowance(AllowanceDataKey)` | Persistent | Stores the `i128` approved spend limit between two addresses. |
 | `EscrowCount` | Instance | Tracks the total number of standard escrows created. |
 | `Escrow(u32)` | Persistent | Stores an `EscrowRecord` containing lockup details and status. |
-| `MultiEscrowCount` | Instance | Tracks the total number of multi-recipient escrows. |
-| `MultiEscrow(u32)` | Persistent | Stores a `MultiEscrowRecord` for proportional payouts. |
 | `RecurringCount` | Instance | Tracks the total number of recurring payment setups. |
 | `Recurring(u32)` | Persistent | Stores a `RecurringRecord` for subscription states. |
 | `SplitCount` | Instance | Tracks the total number of payment splits. |
@@ -40,7 +38,7 @@ Escrow uses the contract address itself as the temporary holder of escrowed fund
 | `balance.rs` | Ledger updates and math | `read_balance`, `receive_balance`, `spend_balance` |
 | `contract.rs` | Main entry point / Soroban interface | `transfer`, `mint`, `clawback`, `freeze` |
 | `dispute.rs` | Escrow adjudication | `open_dispute`, `resolve_dispute` |
-| `escrow.rs` | Time-locked & conditional payments | `create_escrow`, `release_escrow`, `create_multi_escrow` |
+| `escrow.rs` | Time-locked & conditional payments | `create_escrow`, `release_escrow`, `refund_escrow`, `admin_settle_escrow` |
 | `freeze.rs` | Regulatory compliance blocking | `freeze_account`, `unfreeze_account`, `is_frozen` |
 | `metadata.rs` | Token identity storage | `read_name`, `read_symbol`, `read_decimal` |
 | `recurring.rs` | Subscription logic via ledger intervals | `setup_recurring`, `execute_recurring` |

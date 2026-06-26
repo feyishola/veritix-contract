@@ -1,9 +1,15 @@
+//! Escrow lifecycle module.
+//! Manages escrow create/release/refund/admin-settle state transitions.
+//! Contract balance represents escrowed funds held in custody until settlement.
+
+use crate::admin::check_admin;
 use crate::balance::{receive_balance, spend_balance};
 use crate::storage_types::{
     increment_counter, read_persistent_record, write_persistent_record, DataKey,
+    ESCROW_BUMP_AMOUNT, ESCROW_LIFETIME_THRESHOLD,
 };
-use crate::validation::require_positive_amount;
-use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol};
+use crate::validation::{require_current_or_future_ledger, require_positive_amount};
+use soroban_sdk::{contracttype, symbol_short, Address, Env};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -14,12 +20,24 @@ pub struct EscrowRecord {
     pub amount: i128,
     pub released: bool,
     pub refunded: bool,
+    pub expiry_ledger: u32,
 }
 
 // Lock funds from depositor into escrow. The contract address itself holds the
 // escrowed balance until the record is released or refunded. Returns the escrow ID.
-pub fn create_escrow(e: &Env, depositor: Address, beneficiary: Address, amount: i128) -> u32 {
+pub fn create_escrow(
+    e: &Env,
+    depositor: Address,
+    beneficiary: Address,
+    amount: i128,
+    expiry_ledger: u32,
+) -> u32 {
     require_positive_amount(amount);
+    require_current_or_future_ledger(e.ledger().sequence(), expiry_ledger);
+
+    if depositor == beneficiary {
+        panic!("InvalidEscrow: depositor and beneficiary cannot be the same address");
+    }
 
     // Auth: depositor must authorize locking funds
     depositor.require_auth();
@@ -39,12 +57,17 @@ pub fn create_escrow(e: &Env, depositor: Address, beneficiary: Address, amount: 
         amount,
         released: false,
         refunded: false,
+        expiry_ledger,
     };
     write_persistent_record(e, &DataKey::Escrow(count), &record);
 
     // Optional observability event
     e.events().publish(
-        (symbol_short!("escrow_created"), depositor.clone(), beneficiary.clone()),
+        (
+            symbol_short!("escr_crtd"),
+            depositor.clone(),
+            beneficiary.clone(),
+        ),
         amount,
     );
 
@@ -57,9 +80,6 @@ pub fn release_escrow(e: &Env, caller: Address, escrow_id: u32) {
 }
 
 pub fn try_release_escrow(e: &Env, caller: Address, escrow_id: u32) -> Result<(), &'static str> {
-    // Auth: caller must sign the transaction
-    caller.require_auth();
-
     let mut escrow = try_get_escrow(e, escrow_id)?;
 
     // Authorization: only the beneficiary can release
@@ -72,6 +92,9 @@ pub fn try_release_escrow(e: &Env, caller: Address, escrow_id: u32) -> Result<()
         return Err("already settled");
     }
 
+    // Auth: caller must sign the transaction (after state checks)
+    caller.require_auth();
+
     // Mark as released and persist
     escrow.released = true;
     write_persistent_record(e, &DataKey::Escrow(escrow_id), &escrow);
@@ -82,7 +105,11 @@ pub fn try_release_escrow(e: &Env, caller: Address, escrow_id: u32) -> Result<()
 
     // Event for observability
     e.events().publish(
-        (symbol_short!("escrow_released"), escrow_id, escrow.beneficiary.clone()),
+        (
+            symbol_short!("escr_rls"),
+            escrow_id,
+            escrow.beneficiary.clone(),
+        ),
         escrow.amount,
     );
 
@@ -95,13 +122,11 @@ pub fn refund_escrow(e: &Env, caller: Address, escrow_id: u32) {
 }
 
 pub fn try_refund_escrow(e: &Env, caller: Address, escrow_id: u32) -> Result<(), &'static str> {
-    // Auth: caller must sign the transaction
-    caller.require_auth();
-
     let mut escrow = try_get_escrow(e, escrow_id)?;
 
-    // Authorization: only the original depositor can refund
-    if escrow.depositor != caller {
+    // Authorization: only the original depositor can refund, unless the escrow has expired
+    let expired = e.ledger().sequence() > escrow.expiry_ledger;
+    if escrow.depositor != caller && !expired {
         return Err("not depositor");
     }
 
@@ -109,6 +134,9 @@ pub fn try_refund_escrow(e: &Env, caller: Address, escrow_id: u32) -> Result<(),
     if escrow.released || escrow.refunded {
         return Err("already settled");
     }
+
+    // Auth: caller must sign the transaction (after state checks)
+    caller.require_auth();
 
     // Mark as refunded and persist
     escrow.refunded = true;
@@ -120,7 +148,11 @@ pub fn try_refund_escrow(e: &Env, caller: Address, escrow_id: u32) -> Result<(),
 
     // Event for observability
     e.events().publish(
-        (symbol_short!("escrow_refunded"), escrow_id, escrow.depositor.clone()),
+        (
+            symbol_short!("escr_rfnd"),
+            escrow_id,
+            escrow.depositor.clone(),
+        ),
         escrow.amount,
     );
 
@@ -133,13 +165,44 @@ pub fn get_escrow(e: &Env, escrow_id: u32) -> EscrowRecord {
 }
 
 pub fn try_get_escrow(e: &Env, escrow_id: u32) -> Result<EscrowRecord, &'static str> {
-    if e.storage().persistent().has(&DataKey::Escrow(escrow_id)) {
+    let key = DataKey::Escrow(escrow_id);
+    if e.storage().persistent().has(&key) {
+        e.storage()
+            .persistent()
+            .extend_ttl(&key, ESCROW_LIFETIME_THRESHOLD, ESCROW_BUMP_AMOUNT);
         Ok(read_persistent_record(
             e,
-            &DataKey::Escrow(escrow_id),
+            &key,
             "escrow not found",
         ))
     } else {
         Err("escrow not found")
     }
+}
+
+/// Admin escape hatch: forcibly settles a stuck escrow by sending funds to
+/// `recipient`. Used when the normal beneficiary or depositor is frozen and
+/// the standard release/refund paths are deadlocked.
+///
+/// Only the contract admin may call this. The escrow must not already be settled.
+pub fn admin_settle_escrow(e: &Env, admin: Address, escrow_id: u32, recipient: Address) {
+    check_admin(e, &admin);
+
+    let mut escrow = try_get_escrow(e, escrow_id)
+        .unwrap_or_else(|err| panic!("{}", err));
+
+    if escrow.released || escrow.refunded {
+        panic!("already settled");
+    }
+
+    escrow.released = true;
+    write_persistent_record(e, &DataKey::Escrow(escrow_id), &escrow);
+
+    spend_balance(e, e.current_contract_address(), escrow.amount);
+    receive_balance(e, recipient.clone(), escrow.amount);
+
+    e.events().publish(
+        (symbol_short!("adm_sttl"), escrow_id, admin),
+        (recipient, escrow.amount),
+    );
 }
