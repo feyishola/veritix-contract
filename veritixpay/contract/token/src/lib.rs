@@ -56,4 +56,7 @@ mod recurring_test;
 #[cfg(test)]
 mod freeze_test;
 
+#[cfg(test)]
+mod contract_test;
+
 pub use crate::contract::VeritixToken;
