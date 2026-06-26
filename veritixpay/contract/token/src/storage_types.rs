@@ -51,6 +51,7 @@ pub enum DataKey {
     ResolverDisputes(Address),
     OpenDisputes,
     Freeze(Address),
+    FrozenAccounts,
     Paused,
     ClawbackCoSigner,
 }

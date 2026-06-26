@@ -111,6 +111,24 @@ pub fn write_allowance(
     }
 }
 
+/// Check that the allowance exists, is non-expired, and covers `amount` WITHOUT spending it.
+/// Call this before `require_auth()` so a definitely-failing call never emits an auth event.
+pub fn validate_allowance(e: &Env, from: Address, spender: Address, amount: i128) {
+    let key = DataKey::Allowance(AllowanceDataKey {
+        from: from.clone(),
+        spender: spender.clone(),
+    });
+    let allowance = e
+        .storage()
+        .persistent()
+        .get::<DataKey, AllowanceValue>(&key)
+        .unwrap_or(AllowanceValue { amount: 0, expiration_ledger: 0 });
+    if allowance.expiration_ledger < e.ledger().sequence() {
+        panic!("allowance is expired");
+    }
+    if allowance.amount < amount {
+        panic!("insufficient allowance");
+    }
 pub fn get_allowances_for_spender(e: &Env, spender: Address) -> Vec<Address> {
     e.storage()
         .persistent()
