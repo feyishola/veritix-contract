@@ -102,6 +102,9 @@ impl VeritixToken {
 
     // --- Token Operations ---
     pub fn mint(e: Env, admin: Address, to: Address, amount: i128) {
+        if to == e.current_contract_address() {
+            panic!("InvalidRecipient: cannot transfer directly to the contract address — use create_escrow instead");
+        }
         check_admin(&e, &admin);
         require_not_paused(&e);
         require_positive_amount(amount);
@@ -159,6 +162,9 @@ impl VeritixToken {
         e.events().publish((symbol_short!("transfer"), from), (to, amount));
     }
     pub fn transfer_from(e: Env, spender: Address, from: Address, to: Address, amount: i128) {
+        if to == e.current_contract_address() {
+            panic!("InvalidRecipient: cannot transfer directly to the contract address — use create_escrow instead");
+        }
         spender.require_auth();
         require_not_paused(&e);
         require_not_frozen_account(&e, &from);
@@ -351,6 +357,9 @@ impl VeritixToken {
         get_next_execution_ledger(&e, recurring_id)
     }
     pub fn is_executable(e: Env, recurring_id: u32) -> bool {
+        is_executable(&e, recurring_id)
+    }
+}   pub fn is_executable(e: Env, recurring_id: u32) -> bool {
         is_executable(&e, recurring_id)
     }
 }
