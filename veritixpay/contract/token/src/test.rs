@@ -835,3 +835,55 @@ fn test_frozen_accounts_duplicate_freeze_is_idempotent() {
         "duplicate freeze must not add the address twice"
     );
 }
+
+#[test]
+fn test_contract_stats_all_zero_after_initialize() {
+    let (env, admin, _user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+
+    let stats = client.contract_stats();
+    assert_eq!(stats.escrow_count, 0);
+    assert_eq!(stats.split_count, 0);
+    assert_eq!(stats.recurring_count, 0);
+    assert_eq!(stats.dispute_count, 0);
+    assert_eq!(stats.total_supply, 0);
+}
+
+#[test]
+fn test_contract_stats_total_supply_tracks_mint_and_burn() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1_000i128);
+
+    let stats = client.contract_stats();
+    assert_eq!(stats.total_supply, 1_000i128);
+
+    client.burn(&user, &300i128);
+    let stats2 = client.contract_stats();
+    assert_eq!(stats2.total_supply, 700i128);
+}
+
+#[test]
+fn test_contract_stats_escrow_count_increments() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let beneficiary = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &2_000i128);
+
+    assert_eq!(client.contract_stats().escrow_count, 0);
+
+    client.create_escrow(&user, &beneficiary, &500i128, &1_000u32);
+    assert_eq!(client.contract_stats().escrow_count, 1);
+
+    client.create_escrow(&user, &beneficiary, &500i128, &1_000u32);
+    assert_eq!(client.contract_stats().escrow_count, 2);
+}

@@ -49,6 +49,16 @@ pub struct AdminInfo {
     pub paused: bool,
 }
 
+#[derive(Clone)]
+#[contracttype]
+pub struct ContractStats {
+    pub escrow_count: u32,
+    pub split_count: u32,
+    pub recurring_count: u32,
+    pub dispute_count: u32,
+    pub total_supply: i128,
+}
+
 #[contractimpl]
 impl VeritixToken {
     // --- Admin ---
@@ -216,6 +226,16 @@ impl VeritixToken {
         check_admin(&e, &admin);
         update_metadata_fields(&e, name, symbol);
         e.events().publish((symbol_short!("meta_upd"), admin), ());
+    }
+    pub fn contract_stats(e: Env) -> ContractStats {
+        crate::storage_types::bump_instance(&e);
+        ContractStats {
+            escrow_count: crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::EscrowCount),
+            split_count: crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::SplitCount),
+            recurring_count: crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::RecurringCount),
+            dispute_count: crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::DisputeCount),
+            total_supply: read_total_supply(&e),
+        }
     }
 
     // --- Escrow ---
