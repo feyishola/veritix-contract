@@ -159,6 +159,8 @@ pub fn validate_allowance(e: &Env, from: Address, spender: Address, amount: i128
     if allowance.amount < amount {
         panic!("insufficient allowance");
     }
+}
+
 pub fn get_allowances_for_spender(e: &Env, spender: Address) -> Vec<Address> {
     e.storage()
         .persistent()

@@ -1,6 +1,5 @@
 use crate::admin::check_admin;
 use crate::allowance;
-use crate::allowance::write_allowance;
 use crate::balance::{decrease_supply, increase_supply, receive_balance, spend_balance};
 use crate::freeze::{freeze_account, unfreeze_account};
 use crate::validation::require_positive_amount;
@@ -67,6 +66,21 @@ pub fn mint_batch(e: &Env, admin: Address, recipients: Vec<BatchEntry>) {
         total = total.checked_add(entry.amount).expect("overflow");
     }
     e.events().publish((symbol_short!("btch_mint"), admin), total);
+}
+
+pub fn burn_from_batch(e: &Env, spender: Address, targets: Vec<(Address, i128)>) {
+    spender.require_auth();
+    if targets.len() > MAX_BATCH_TARGETS {
+        panic!("batch too large");
+    }
+    for i in 0..targets.len() {
+        let (from, amount) = targets.get(i).unwrap();
+        require_positive_amount(amount);
+        crate::allowance::spend_allowance(e, from.clone(), spender.clone(), amount);
+        spend_balance(e, from.clone(), amount);
+        decrease_supply(e, amount);
+        e.events().publish((symbol_short!("burn_from"), spender.clone(), from), amount);
+    }
 }
 
 pub fn transfer_batch(e: &Env, from: Address, recipients: Vec<BatchEntry>) {

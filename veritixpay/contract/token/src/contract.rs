@@ -2,6 +2,9 @@ use crate::admin::{check_admin, has_admin, read_admin, read_clawback_cosigner, t
 use crate::allowance::{get_allowances_for_spender, read_allowance, revoke_all_allowances, spend_allowance, validate_allowance, write_allowance};
 use crate::balance::{decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance, spend_balance};
 use crate::batch::{approve_batch, clawback_batch, freeze_batch, transfer_batch_with_memo, unfreeze_batch};
+use crate::allowance::{get_allowances_for_spender, read_allowance, spend_allowance, validate_allowance, write_allowance};
+use crate::balance::{decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance, spend_balance};
+use crate::batch::{burn_from_batch, clawback_batch, freeze_batch, unfreeze_batch};
 use crate::dispute::{
     expire_dispute, get_dispute as dispute_get, get_dispute_history_for_escrow,
     get_open_disputes, open_dispute, resolve_dispute, DisputeRecord,
@@ -97,6 +100,9 @@ impl VeritixToken {
 
     // --- Token Operations ---
     pub fn mint(e: Env, admin: Address, to: Address, amount: i128) {
+        if to == e.current_contract_address() {
+            panic!("InvalidRecipient: cannot transfer directly to the contract address — use create_escrow instead");
+        }
         check_admin(&e, &admin);
         require_not_paused(&e);
         require_positive_amount(amount);
@@ -144,6 +150,9 @@ impl VeritixToken {
         }
         clawback_batch(&e, admin, targets);
     }
+    pub fn burn_from_batch(e: Env, spender: Address, targets: Vec<(Address, i128)>) {
+        burn_from_batch(&e, spender, targets);
+    }
     pub fn transfer(e: Env, from: Address, to: Address, amount: i128) {
         from.require_auth();
         require_not_paused(&e);
@@ -154,6 +163,9 @@ impl VeritixToken {
         e.events().publish((symbol_short!("transfer"), from), (to, amount));
     }
     pub fn transfer_from(e: Env, spender: Address, from: Address, to: Address, amount: i128) {
+        if to == e.current_contract_address() {
+            panic!("InvalidRecipient: cannot transfer directly to the contract address — use create_escrow instead");
+        }
         spender.require_auth();
         require_not_paused(&e);
         require_not_frozen_account(&e, &from);
@@ -363,6 +375,9 @@ impl VeritixToken {
         get_next_execution_ledger(&e, recurring_id)
     }
     pub fn is_executable(e: Env, recurring_id: u32) -> bool {
+        is_executable(&e, recurring_id)
+    }
+}   pub fn is_executable(e: Env, recurring_id: u32) -> bool {
         is_executable(&e, recurring_id)
     }
 }

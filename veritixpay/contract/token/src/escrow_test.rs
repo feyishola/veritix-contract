@@ -421,7 +421,100 @@ fn test_double_release_panics() {
         crate::balance::receive_balance(&e, depositor.clone(), amount);
         escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
         release_escrow(&e, beneficiary.clone(), escrow_id);
-        release_escrow(&e, beneficiary.clone(), escrow_id);
+        release_escrow(&e, beneficiary.clone(), escrow_id, None);
+    });
+}
+
+#[test]
+fn test_partial_release_50_percent() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let depositor = Address::generate(&e);
+    let beneficiary = Address::generate(&e);
+    let amount = 1_000i128;
+    let release_amount = amount / 2;
+
+    let mut escrow_id: u32 = 0;
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor.clone(), amount);
+        escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
+    });
+
+    e.as_contract(&contract_id, || {
+        release_escrow(&e, beneficiary.clone(), escrow_id, Some(release_amount));
+        let record = get_escrow(&e, escrow_id);
+        assert_eq!(record.amount, amount - release_amount);
+        assert!(!record.released);
+    });
+}
+
+#[test]
+fn test_partial_release_to_zero_marks_as_released() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let depositor = Address::generate(&e);
+    let beneficiary = Address::generate(&e);
+    let amount = 1_000i128;
+    let release_amount = amount / 2;
+
+    let mut escrow_id: u32 = 0;
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor.clone(), amount);
+        escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
+    });
+
+    e.as_contract(&contract_id, || {
+        release_escrow(&e, beneficiary.clone(), escrow_id, Some(release_amount));
+        release_escrow(&e, beneficiary.clone(), escrow_id, Some(release_amount));
+        let record = get_escrow(&e, escrow_id);
+        assert_eq!(record.amount, 0);
+        assert!(record.released);
+    });
+}
+
+#[test]
+#[should_panic]
+fn test_partial_release_over_remaining_panics() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let depositor = Address::generate(&e);
+    let beneficiary = Address::generate(&e);
+    let amount = 1_000i128;
+    let release_amount = amount / 2;
+
+    let mut escrow_id: u32 = 0;
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor.clone(), amount);
+        escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
+    });
+
+    e.as_contract(&contract_id, || {
+        release_escrow(&e, beneficiary.clone(), escrow_id, Some(release_amount));
+        // Over-release
+        release_escrow(&e, beneficiary.clone(), escrow_id, Some(release_amount + 1));
+    });
+}
+
+#[test]
+#[should_panic]
+fn test_partial_release_after_full_release_panics() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let depositor = Address::generate(&e);
+    let beneficiary = Address::generate(&e);
+    let amount = 1_000i128;
+
+    let mut escrow_id: u32 = 0;
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor.clone(), amount);
+        escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
+    });
+
+    e.as_contract(&contract_id, || {
+        // Full release
+        release_escrow(&e, beneficiary.clone(), escrow_id, None);
+        // Partial release after full release
+        release_escrow(&e, beneficiary.clone(), escrow_id, Some(1));
     });
 }
 
