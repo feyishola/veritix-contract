@@ -42,6 +42,34 @@ pub fn read_allowance(e: &Env, from: Address, spender: Address) -> AllowanceValu
     }
 }
 
+fn write_owner_allowance_index(e: &Env, from: &Address, spender: &Address, add: bool) {
+    let owner_key = DataKey::OwnerAllowances(from.clone());
+    let mut spenders: Vec<Address> = e.storage().persistent().get(&owner_key).unwrap_or_else(|| Vec::new(e));
+    if add {
+        let mut exists = false;
+        for i in 0..spenders.len() {
+            if spenders.get(i).unwrap() == *spender {
+                exists = true;
+                break;
+            }
+        }
+        if !exists {
+            spenders.push_back(spender.clone());
+        }
+    } else {
+        let mut updated = Vec::new(e);
+        for i in 0..spenders.len() {
+            let addr = spenders.get(i).unwrap();
+            if addr != *spender {
+                updated.push_back(addr);
+            }
+        }
+        spenders = updated;
+    }
+    e.storage().persistent().set(&owner_key, &spenders);
+    e.storage().persistent().extend_ttl(&owner_key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+}
+
 pub fn write_allowance(
     e: &Env,
     from: Address,
@@ -80,6 +108,7 @@ pub fn write_allowance(
             PERSISTENT_LIFETIME_THRESHOLD,
             PERSISTENT_BUMP_AMOUNT,
         );
+        write_owner_allowance_index(e, &from, &spender, false);
     } else {
         let mut exists = false;
         for i in 0..spenders_from.len() {
@@ -98,6 +127,7 @@ pub fn write_allowance(
                 PERSISTENT_BUMP_AMOUNT,
             );
         }
+        write_owner_allowance_index(e, &from, &spender, true);
         let allowance = AllowanceValue {
             amount,
             expiration_ledger,
@@ -129,11 +159,25 @@ pub fn validate_allowance(e: &Env, from: Address, spender: Address, amount: i128
     if allowance.amount < amount {
         panic!("insufficient allowance");
     }
+}
+
 pub fn get_allowances_for_spender(e: &Env, spender: Address) -> Vec<Address> {
     e.storage()
         .persistent()
         .get(&DataKey::SpenderAllowances(spender))
         .unwrap_or_else(|| Vec::new(e))
+}
+
+pub fn revoke_all_allowances(e: &Env, from: Address) {
+    from.require_auth();
+    let owner_key = DataKey::OwnerAllowances(from.clone());
+    let spenders: Vec<Address> = e.storage().persistent().get(&owner_key).unwrap_or_else(|| Vec::new(e));
+    let current = e.ledger().sequence();
+    for i in 0..spenders.len() {
+        let spender = spenders.get(i).unwrap();
+        write_allowance(e, from.clone(), spender, 0, current);
+    }
+    e.storage().persistent().remove(&owner_key);
 }
 
 pub fn spend_allowance(e: &Env, from: Address, spender: Address, amount: i128) {
