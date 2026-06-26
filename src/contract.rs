@@ -1,8 +1,8 @@
 use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, Vec};
 use crate::{escrow, multi_escrow};
-use soroban_sdk::{contractimpl, Address, Env};
 use crate::admin::validate_admin_address;
 use crate::storage_types::DataKey;
+use crate::validation::require_positive_amount; // Security audit import
 
 pub struct EscrowContract;
 
@@ -98,6 +98,7 @@ impl VeriTixPayTrait for VeriTixPay {
         expiry_ledger: u32,
         memo: Bytes,
     ) -> u32 {
+        require_positive_amount(amount);
         escrow::create_escrow(e, depositor, beneficiary, token, amount, expiry_ledger, memo)
     }
 
@@ -106,6 +107,7 @@ impl VeriTixPayTrait for VeriTixPay {
     }
 
     fn release_partial_escrow(e: Env, caller: Address, escrow_id: u32, amount: i128) {
+        require_positive_amount(amount);
         escrow::release_partial_escrow(e, caller, escrow_id, amount)
     }
 
@@ -132,6 +134,7 @@ impl VeriTixPayTrait for VeriTixPay {
         token: Address,
         expiry_ledger: u32,
     ) -> u32 {
+        // Enforce that total distributed amount values are checked within sub-module contexts
         multi_escrow::create_multi_escrow(e, depositor, recipients, token, expiry_ledger)
     }
 
@@ -153,6 +156,8 @@ impl VeriTixPayTrait for VeriTixPay {
         ticket_ref: Bytes,
     ) -> u32 {
         buyer.require_auth();
+        require_positive_amount(ticket_price);
+        
         escrow::create_escrow(
             e,
             buyer,
@@ -177,6 +182,8 @@ impl VeriTixPayTrait for VeriTixPay {
         event_ledger: u32,
     ) -> u32 {
         sender.require_auth();
+        require_positive_amount(total_amount);
+        
         assert!(organizer_bps + artist_bps < 10_000, "invalid basis points");
         let platform_bps = 10_000 - organizer_bps - artist_bps;
         let organizer_amt = total_amount * organizer_bps as i128 / 10_000;
