@@ -450,3 +450,39 @@ fn test_create_escrow_requires_depositor_auth() {
     assert!(result.is_err(), "Expected transaction to fail due to missing depositor authentication.");
 }
 
+#[test]
+fn test_one_hundred_escrows_create_and_release() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+    let tc = soroban_sdk::token::Client::new(&t.e, &t.token);
+    let initial_total_supply = tc.balance(&t.depositor);
+
+    let mut escrow_ids = Vec::new(&t.e);
+
+    for i in 0..100 {
+        let depositor = Address::generate(&t.e);
+        let beneficiary = Address::generate(&t.e);
+        soroban_sdk::token::StellarAssetClient::new(&t.e, &t.token).mint(&depositor, &1000);
+
+        let id = t.client.create_escrow(
+            &depositor,
+            &beneficiary,
+            &t.token,
+            &1,
+            &expiry,
+            &empty_memo(&t.e),
+        );
+        assert_eq!(id, i);
+        escrow_ids.push_back(id);
+    }
+
+    for id in escrow_ids.iter() {
+        let escrow = t.client.get_escrow(&id);
+        t.client.release_escrow(&escrow.beneficiary, &id);
+    }
+
+    assert_eq!(tc.balance(&t.e.current_contract_address()), 0);
+
+    let final_total_supply = tc.balance(&t.depositor);
+    assert_eq!(initial_total_supply, final_total_supply);
+}
