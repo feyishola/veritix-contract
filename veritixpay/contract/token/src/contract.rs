@@ -27,7 +27,7 @@ use crate::splitter::{
     get_split as split_get, SplitRecord, SplitRecipient,
 };
 use crate::validation::{require_not_frozen_account, require_positive_amount};
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Bytes, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, String, Vec};
 
 #[contract]
 pub struct VeritixToken;
@@ -85,7 +85,7 @@ impl VeritixToken {
         write_admin(&e, &admin);
         e.storage().instance().set(&DataKey::MaxSupply, &max_supply);
         e.events().publish(
-            (symbol_short!("initialized"), admin),
+            (symbol_short!("init"), admin),
             (name, symbol, decimal),
         );
     }
@@ -185,11 +185,8 @@ impl VeritixToken {
         require_not_paused(&e);
         require_not_frozen_account(&e, &from);
         require_positive_amount(amount);
-        // Validate allowance before requiring auth: a definitely-failing call must not emit an auth event.
         validate_allowance(&e, from.clone(), spender.clone(), amount);
-        spender.require_auth();
         spend_allowance(&e, from.clone(), spender.clone(), amount);
-        spend_allowance(&e, from.clone(), spender, amount);
         spend_balance(&e, from.clone(), amount);
         receive_balance(&e, to.clone(), amount);
         e.events().publish((symbol_short!("xfer_from"), from), (to, amount));

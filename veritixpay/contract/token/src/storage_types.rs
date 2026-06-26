@@ -66,6 +66,9 @@ pub enum DataKey {
     OwnerAllowances(Address),
     Paused,
     ClawbackCoSigner,
+    HolderSet,
+    PendingAdmin,
+    Nonce(Address),
 }
 
 pub fn read_persistent_record<T>(e: &Env, key: &DataKey, missing_message: &'static str) -> T
