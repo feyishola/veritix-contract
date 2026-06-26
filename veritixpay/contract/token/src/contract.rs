@@ -24,7 +24,7 @@ use crate::recurring::{
 };
 use crate::splitter::{
     cancel_split as split_cancel, create_split as split_create, distribute as split_distribute,
-    get_split as split_get, SplitRecord, SplitRecipient,
+    get_split as split_get, replace_split_recipient, SplitRecord, SplitRecipient,
 };
 use crate::validation::{require_not_frozen_account, require_positive_amount};
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, String, Vec};
@@ -376,6 +376,9 @@ impl VeritixToken {
     }
     pub fn get_split(e: Env, split_id: u32) -> SplitRecord {
         split_get(&e, split_id)
+    }
+    pub fn replace_split_recipient(e: Env, sender: Address, split_id: u32, old_recipient: Address, new_recipient: Address) {
+        crate::splitter::replace_split_recipient(&e, sender, split_id, old_recipient, new_recipient)
     }
     pub fn split_count(e: Env) -> u32 {
         crate::storage_types::bump_instance(&e);
