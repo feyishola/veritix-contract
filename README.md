@@ -1,5 +1,7 @@
 # Veritix Pay
 
+![Coverage](https://img.shields.io/badge/coverage-llvm--cov%20(80%25%20min)-blue)
+
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 ![Built With Rust](https://img.shields.io/badge/Built%20With-Rust-orange.svg)
 ![Network: Stellar / Soroban](https://img.shields.io/badge/Network-Stellar%20%2F%20Soroban-7b5ea7.svg)
@@ -57,7 +59,7 @@ The entry point is `veritixpay/contract/token/src/lib.rs`. Modules compiled into
 | Tool | Notes | Install |
 |------|-------|---------|
 | Rust (stable) | Required to compile Soroban contracts | https://rustup.rs |
-| wasm32 target | Required build target | `rustup target add wasm32-unknown-unknown` |
+| wasm32v1 target | Required build target | `rustup target add wasm32v1-none` |
 | Stellar CLI (latest) | For building and deploying | `cargo install stellar-cli` |
 
 Verify your setup:
@@ -74,13 +76,21 @@ git clone https://github.com/Lead-Studios/veritix-contract.git
 cd veritix-contract/veritixpay/contract/token
 
 make preflight  # verify all required tools are installed
-make build    # compile to WASM (requires stellar CLI)
-make test     # run tests
-make fmt      # format code
-make clean    # remove build artifacts
+make build     # compile to WASM (requires stellar CLI)
+make test      # run tests
+make fmt       # format code
+make clean     # remove build artifacts
 ```
 
-> **Note:** Run `make preflight` first to verify your setup. It checks for stellar CLI, Rust, and the wasm32-unknown-unknown target.
+> **Note:** Run `make preflight` first to verify your setup. It checks for stellar CLI, Rust, and the `wasm32v1-none` target.
+
+### Contract Address
+
+The deployed contract address will be written to the repository's deployment output and can also be stored in `.contract-id` after running `scripts/deploy.sh`.
+
+### Test Coverage
+
+![Coverage](https://img.shields.io/badge/coverage-available-blue)
 
 ---
 
