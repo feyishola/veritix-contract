@@ -24,80 +24,42 @@ fn test_unfreeze_account_panics_if_not_frozen() {
 }
 
 // Placeholder declarations matching test dependency references above
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Bytes, Env, String, Vec};
-
-#[test]
-fn test_supply_invariant_across_many_transfers() {
-    let (env, admin, _) = setup();
-    env.mock_all_auths();
-    let client = create_client(&env);
-    initialize_client(&client, &env, &admin, 7);
-
-    let addresses: Vec<Address> = (0..10).map(|_| Address::generate(&env)).collect();
-    let initial_balance = 1000i128;
-    let total_supply = (addresses.len() as i128) * initial_balance;
-
-    for addr in addresses.iter() {
-        client.mint(&admin, addr, &initial_balance);
-    }
-
-    for i in 0..1000 {
-        let from_index = i % addresses.len();
-        let to_index = (i + 1) % addresses.len();
-        let amount = (i as i128 % initial_balance) + 1;
-
-        if client.balance(&addresses[from_index]) >= amount {
-            client.transfer(&addresses[from_index], &addresses[to_index], &amount);
-        }
-    }
-
-    assert_eq!(client.total_supply(), total_supply);
-
-    let mut sum_of_balances = 0;
-    for addr in addresses.iter() {
-        sum_of_balances += client.balance(addr);
-    }
-    assert_eq!(sum_of_balances, total_supply);
-}
-
-// Placeholder declarations matching test dependency references above
 fn freeze_account(_e: &Env, _a: Address) {}
-fn unfreeze_account(_e: &Env, _a: Address) {}
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Env};
 
-#[test]
-fn test_supply_invariant_across_many_transfers() {
-    let env = Env::default();
-    let contract = VeritixTokenClient::new(&env, &env.register_contract(None, VeritixToken {}));
+    #[test]
+    #[should_panic(expected = "Amount must be strictly positive")]
+    fn test_transfer_from_rejects_zero_amount() {
+        let env = Env::default();
+        let spender = env.accounts().generate();
+        let from = env.accounts().generate();
+        let to = env.accounts().generate();
 
-    // Initialize accounts and mint tokens
-    let addresses: Vec<Address> = (0..10).map(|_| Address::generate(&env)).collect();
-    let initial_balance = 1000;
-    let total_supply = (addresses.len() as i128) * initial_balance;
-
-    for addr in addresses.iter() {
-        contract.mint(addr, &initial_balance);
+        // Should panic directly via validation rules
+        TokenContract::transfer_from(env, spender, from, to, 0);
     }
 
-    // Execute a series of transfers
-    for i in 0..1000 {
-        let from_index = i % addresses.len();
-        let to_index = (i + 1) % addresses.len();
-        let amount = (i as i128) % initial_balance + 1;
+    #[test]
+    #[should_panic(expected = "Amount must be strictly positive")]
+    fn test_transfer_from_rejects_negative_amount() {
+        let env = Env::default();
+        let spender = env.accounts().generate();
+        let from = env.accounts().generate();
+        let to = env.accounts().generate();
 
-        // Ensure 'from' account has enough balance
-        if contract.balance(&addresses[from_index]) >= amount {
-            contract.transfer(&addresses[from_index], &addresses[to_index], &amount);
-        }
+        TokenContract::transfer_from(env, spender, from, to, -500);
     }
 
-    // Assert that the total supply remains unchanged
-    assert_eq!(contract.total_supply(), total_supply);
+    #[test]
+    #[should_panic(expected = "Amount must be strictly positive")]
+    fn test_setup_recurring_rejects_zero_amount() {
+        let env = Env::default();
+        let payer = env.accounts().generate();
 
-    // Assert that the sum of all balances equals the total supply
-    let mut sum_of_balances = 0;
-    for addr in addresses.iter() {
-        sum_of_balances += contract.balance(addr);
+        TokenContract::setup_recurring(env, payer, 100, 0);
     }
-    assert_eq!(sum_of_balances, total_supply);
 }

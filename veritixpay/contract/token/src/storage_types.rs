@@ -3,8 +3,15 @@
 
 use soroban_sdk::{contracttype, Address, Env, IntoVal, TryFromVal, Val};
 
-pub const BALANCE_LIFETIME_THRESHOLD: u32 = 518400;
-pub const BALANCE_BUMP_AMOUNT: u32 = 535000;
+/// Target real-time lifetime: ~1 year (at least 365 days).
+/// Calculation: 31,536,000 seconds / 5 seconds per ledger = 6,307,200 ledgers.
+/// 6,310,000 provides just over 1 year of storage TTL to ensure users do not
+/// lose their balances due to archival within a standard 1-year inactivity period.
+pub const BALANCE_LIFETIME_THRESHOLD: u32 = 6_310_000;
+
+/// The bump amount is set slightly higher than the threshold to avoid
+/// continuous bumping on every transaction and save on fees.
+pub const BALANCE_BUMP_AMOUNT: u32 = 6_400_000;
 pub const ALLOWANCE_LIFETIME_THRESHOLD: u32 = 518400;
 pub const ALLOWANCE_BUMP_AMOUNT: u32 = 535000;
 pub const INSTANCE_LIFETIME_THRESHOLD: u32 = 518400;
@@ -51,7 +58,9 @@ pub enum DataKey {
     ResolverDisputes(Address),
     OpenDisputes,
     Freeze(Address),
+    FrozenAccounts,
     Paused,
+    ClawbackCoSigner,
 }
 
 pub fn read_persistent_record<T>(e: &Env, key: &DataKey, missing_message: &'static str) -> T

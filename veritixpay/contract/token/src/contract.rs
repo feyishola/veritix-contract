@@ -1,4 +1,9 @@
+use crate::admin::{check_admin, has_admin, read_admin, read_clawback_cosigner, transfer_admin, write_admin, write_clawback_cosigner};
 use crate::admin::{check_admin, has_admin, read_admin, transfer_admin, write_admin};
+use crate::allowance::{read_allowance, spend_allowance, validate_allowance, write_allowance};
+use crate::balance::{
+    decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance,
+    spend_balance,
 use crate::allowance::{get_allowances_for_spender, read_allowance, spend_allowance, write_allowance};
 use crate::balance::{decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance, spend_balance};
 use crate::batch::{clawback_batch, freeze_batch, unfreeze_batch};
@@ -11,7 +16,7 @@ use crate::escrow::{
     get_escrow as escrow_get, refund_escrow as escrow_refund, release_escrow as escrow_release,
     EscrowRecord,
 };
-use crate::freeze::{freeze_account, is_frozen as read_frozen_status, unfreeze_account};
+use crate::freeze::{freeze_account, get_frozen_accounts, is_frozen as read_frozen_status, unfreeze_account};
 use crate::metadata::{read_decimal, read_name, read_symbol, update_metadata_fields, validate_metadata, write_metadata, TokenMetadata};
 use crate::pause::{is_paused, pause, require_not_paused, unpause};
 use crate::recurring::{
@@ -45,6 +50,16 @@ pub struct AdminInfo {
     pub paused: bool,
 }
 
+#[derive(Clone)]
+#[contracttype]
+pub struct ContractStats {
+    pub escrow_count: u32,
+    pub split_count: u32,
+    pub recurring_count: u32,
+    pub dispute_count: u32,
+    pub total_supply: i128,
+}
+
 #[contractimpl]
 impl VeritixToken {
     // --- Admin ---
@@ -52,10 +67,14 @@ impl VeritixToken {
         if has_admin(&e) {
             panic!("AlreadyInitialized");
         }
-        let metadata = TokenMetadata { name, symbol, decimal };
+        let metadata = TokenMetadata { name: name.clone(), symbol: symbol.clone(), decimal };
         validate_metadata(&metadata);
         write_metadata(&e, metadata);
         write_admin(&e, &admin);
+        e.events().publish(
+            (symbol_short!("initialized"), admin),
+            (name, symbol, decimal),
+        );
     }
     pub fn set_admin(e: Env, new_admin: Address) {
         transfer_admin(&e, new_admin);
@@ -100,6 +119,7 @@ impl VeritixToken {
     }
     pub fn burn_from(e: Env, spender: Address, from: Address, amount: i128) {
         spender.require_auth();
+        require_not_frozen_account(&e, &from);
         require_not_paused(&e);
         require_positive_amount(amount);
         spend_allowance(&e, from.clone(), spender.clone(), amount);
@@ -107,14 +127,26 @@ impl VeritixToken {
         decrease_supply(&e, amount);
         e.events().publish((symbol_short!("burn_from"), spender), (from, amount));
     }
+    pub fn set_clawback_cosigner(e: Env, admin: Address, cosigner: Address) {
+        check_admin(&e, &admin);
+        write_clawback_cosigner(&e, &cosigner);
+        e.events().publish((symbol_short!("cosigner"), admin), cosigner);
+    }
     pub fn clawback(e: Env, admin: Address, from: Address, amount: i128) {
         check_admin(&e, &admin);
+        if let Some(cosigner) = read_clawback_cosigner(&e) {
+            cosigner.require_auth();
+        }
         require_positive_amount(amount);
         spend_balance(&e, from.clone(), amount);
         decrease_supply(&e, amount);
         e.events().publish((symbol_short!("clawback"), admin), (from, amount));
     }
     pub fn clawback_batch(e: Env, admin: Address, targets: Vec<(Address, i128)>) {
+        check_admin(&e, &admin);
+        if let Some(cosigner) = read_clawback_cosigner(&e) {
+            cosigner.require_auth();
+        }
         clawback_batch(&e, admin, targets);
     }
     pub fn transfer(e: Env, from: Address, to: Address, amount: i128) {
@@ -131,6 +163,10 @@ impl VeritixToken {
         require_not_paused(&e);
         require_not_frozen_account(&e, &from);
         require_positive_amount(amount);
+        // Validate allowance before requiring auth: a definitely-failing call must not emit an auth event.
+        validate_allowance(&e, from.clone(), spender.clone(), amount);
+        spender.require_auth();
+        spend_allowance(&e, from.clone(), spender.clone(), amount);
         spend_allowance(&e, from.clone(), spender, amount);
         spend_balance(&e, from.clone(), amount);
         receive_balance(&e, to.clone(), amount);
@@ -180,6 +216,9 @@ impl VeritixToken {
     pub fn is_frozen(e: Env, id: Address) -> bool {
         read_frozen_status(&e, &id)
     }
+    pub fn frozen_accounts(e: Env) -> Vec<Address> {
+        get_frozen_accounts(&e)
+    }
     pub fn decimals(e: Env) -> u32 {
         read_decimal(&e)
     }
@@ -204,6 +243,16 @@ impl VeritixToken {
         check_admin(&e, &admin);
         update_metadata_fields(&e, name, symbol);
         e.events().publish((symbol_short!("meta_upd"), admin), ());
+    }
+    pub fn contract_stats(e: Env) -> ContractStats {
+        crate::storage_types::bump_instance(&e);
+        ContractStats {
+            escrow_count: crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::EscrowCount),
+            split_count: crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::SplitCount),
+            recurring_count: crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::RecurringCount),
+            dispute_count: crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::DisputeCount),
+            total_supply: read_total_supply(&e),
+        }
     }
 
     // --- Escrow ---
