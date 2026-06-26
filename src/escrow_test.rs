@@ -450,3 +450,32 @@ fn test_create_escrow_requires_depositor_auth() {
     assert!(result.is_err(), "Expected transaction to fail due to missing depositor authentication.");
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage_types::MAX_ESCROW_AMOUNT;
+    use soroban_sdk::{testutils::Address as _, Env, Bytes};
+
+    #[test]
+    #[should_panic(expected = "AmountTooLarge: use multi-party escrow for large amounts")]
+    fn test_create_escrow_rejects_exceeded_cap_amount() {
+        let env = Env::default();
+        let depositor = env.accounts().generate();
+        let beneficiary = env.accounts().generate();
+        let token = env.accounts().generate();
+        let memo = Bytes::new(&env);
+
+        // Supply an amount exactly 1 unit over the allowed global safety cap
+        let illegal_excessive_amount = MAX_ESCROW_AMOUNT + 1;
+
+        create_escrow(
+            env,
+            depositor,
+            beneficiary,
+            token,
+            illegal_excessive_amount,
+            12345,
+            memo,
+        );
+    }
+}

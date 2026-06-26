@@ -16,6 +16,7 @@ pub mod metadata;
 pub mod pause;
 pub mod permit;
 pub mod recurring;
+pub mod snapshot;
 pub mod splitter;
 pub mod storage_types;
 pub mod validation;
@@ -54,5 +55,11 @@ mod pause_test;
 
 #[cfg(test)]
 mod recurring_test;
+
+#[cfg(test)]
+mod freeze_test;
+
+#[cfg(test)]
+mod contract_test;
 
 pub use crate::contract::VeritixToken;

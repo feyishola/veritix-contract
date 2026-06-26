@@ -1,7 +1,10 @@
-use crate::admin::{check_admin, has_admin, read_admin, read_clawback_cosigner, transfer_admin, write_admin, write_clawback_cosigner, propose_admin, accept_admin};
-use crate::allowance::{get_allowances_for_spender, increase_allowance, decrease_allowance, read_allowance, spend_allowance, validate_allowance, write_allowance};
+use crate::admin::{check_admin, has_admin, read_admin, read_clawback_cosigner, transfer_admin, write_admin, write_clawback_cosigner};
+use crate::allowance::{get_allowances_for_spender, read_allowance, revoke_all_allowances, spend_allowance, validate_allowance, write_allowance};
 use crate::balance::{decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance, spend_balance};
-use crate::batch::{clawback_batch, freeze_batch, unfreeze_batch};
+use crate::batch::{approve_batch, clawback_batch, freeze_batch, transfer_batch_with_memo, unfreeze_batch};
+use crate::allowance::{get_allowances_for_spender, read_allowance, spend_allowance, validate_allowance, write_allowance};
+use crate::balance::{decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance, spend_balance};
+use crate::batch::{burn_from_batch, clawback_batch, freeze_batch, unfreeze_batch};
 use crate::dispute::{
     expire_dispute, get_dispute as dispute_get, get_dispute_history_for_escrow,
     get_open_disputes, open_dispute, resolve_dispute, DisputeRecord,
@@ -66,6 +69,21 @@ impl VeritixToken {
         validate_metadata(&metadata);
         write_metadata(&e, metadata);
         write_admin(&e, &admin);
+        e.storage().instance().set(&DataKey::MaxSupply, &0i128);
+        e.events().publish(
+            (symbol_short!("initialized"), admin),
+            (name, symbol, decimal),
+        );
+    }
+    pub fn initialize_with_max_supply(e: Env, admin: Address, name: String, symbol: String, decimal: u32, max_supply: i128) {
+        if has_admin(&e) {
+            panic!("AlreadyInitialized");
+        }
+        let metadata = TokenMetadata { name: name.clone(), symbol: symbol.clone(), decimal };
+        validate_metadata(&metadata);
+        write_metadata(&e, metadata);
+        write_admin(&e, &admin);
+        e.storage().instance().set(&DataKey::MaxSupply, &max_supply);
         e.events().publish(
             (symbol_short!("init"), admin),
             (name, symbol, decimal),
@@ -97,6 +115,9 @@ impl VeritixToken {
 
     // --- Token Operations ---
     pub fn mint(e: Env, admin: Address, to: Address, amount: i128) {
+        if to == e.current_contract_address() {
+            panic!("InvalidRecipient: cannot transfer directly to the contract address — use create_escrow instead");
+        }
         check_admin(&e, &admin);
         require_not_paused(&e);
         require_positive_amount(amount);
@@ -144,6 +165,9 @@ impl VeritixToken {
         }
         clawback_batch(&e, admin, targets);
     }
+    pub fn burn_from_batch(e: Env, spender: Address, targets: Vec<(Address, i128)>) {
+        burn_from_batch(&e, spender, targets);
+    }
     pub fn transfer(e: Env, from: Address, to: Address, amount: i128) {
         from.require_auth();
         require_not_paused(&e);
@@ -154,6 +178,10 @@ impl VeritixToken {
         e.events().publish((symbol_short!("transfer"), from), (to, amount));
     }
     pub fn transfer_from(e: Env, spender: Address, from: Address, to: Address, amount: i128) {
+        if to == e.current_contract_address() {
+            panic!("InvalidRecipient: cannot transfer directly to the contract address — use create_escrow instead");
+        }
+        spender.require_auth();
         require_not_paused(&e);
         require_not_frozen_account(&e, &from);
         require_positive_amount(amount);
@@ -193,19 +221,61 @@ impl VeritixToken {
     pub fn unfreeze_batch(e: Env, admin: Address, targets: Vec<Address>) {
         unfreeze_batch(&e, admin, targets);
     }
+    pub fn approve_batch(e: Env, from: Address, approvals: Vec<(Address, i128, u32)>) {
+        approve_batch(&e, from, approvals);
+    }
+    pub fn transfer_batch_with_memo(e: Env, from: Address, recipients: Vec<(Address, i128, Bytes)>) {
+        transfer_batch_with_memo(&e, from, recipients);
+    }
 
     // --- Views ---
     pub fn total_supply(e: Env) -> i128 {
         read_total_supply(&e)
     }
+    pub fn max_supply(e: Env) -> i128 {
+        read_max_supply(&e)
+    }
     pub fn balance(e: Env, id: Address) -> i128 {
         read_balance(&e, id)
+    }
+    pub fn balance_of_batch(e: Env, addresses: Vec<Address>) -> Vec<i128> {
+        let mut balances: Vec<i128> = Vec::new(&e);
+        for i in 0..addresses.len() {
+            let addr = addresses.get(i).unwrap();
+            balances.push_back(read_balance(&e, addr));
+        }
+        balances
     }
     pub fn allowance(e: Env, from: Address, spender: Address) -> i128 {
         read_allowance(&e, from, spender).amount
     }
     pub fn is_frozen(e: Env, id: Address) -> bool {
         read_frozen_status(&e, &id)
+    }
+    pub fn is_frozen_batch(e: Env, addresses: Vec<Address>) -> Vec<bool> {
+        let mut result: Vec<bool> = Vec::new(&e);
+        for i in 0..addresses.len() {
+            let addr = addresses.get(i).unwrap();
+            result.push_back(read_frozen_status(&e, &addr));
+        }
+        result
+    }
+    pub fn total_holders(e: Env) -> u32 {
+        let key = DataKey::HolderSet;
+        let holders: Vec<Address> = e.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(&e));
+        holders.len()
+    }
+    pub fn get_holders(e: Env, offset: u32, limit: u32) -> Vec<Address> {
+        let key = DataKey::HolderSet;
+        let all: Vec<Address> = e.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(&e));
+        let mut result: Vec<Address> = Vec::new(&e);
+        let end = (offset + limit).min(all.len());
+        let mut i = offset;
+        while i < end {
+            result.push_back(all.get(i).unwrap());
+            i += 1;
+        }
+        result
     }
     pub fn frozen_accounts(e: Env) -> Vec<Address> {
         get_frozen_accounts(&e)
@@ -221,6 +291,9 @@ impl VeritixToken {
     }
     pub fn get_allowances_for_spender(e: Env, spender: Address) -> Vec<Address> {
         get_allowances_for_spender(&e, spender)
+    }
+    pub fn revoke_all_allowances(e: Env, from: Address) {
+        revoke_all_allowances(&e, from);
     }
     pub fn token_info(e: Env) -> TokenInfo {
         TokenInfo {
@@ -344,33 +417,7 @@ impl VeritixToken {
     pub fn is_executable(e: Env, recurring_id: u32) -> bool {
         is_executable(&e, recurring_id)
     }
-
-    // --- Allowance Increase/Decrease ---
-    pub fn increase_allowance(e: Env, from: Address, spender: Address, delta: i128, expiration_ledger: u32) {
-        increase_allowance(&e, from, spender, delta, expiration_ledger);
-    }
-    pub fn decrease_allowance(e: Env, from: Address, spender: Address, delta: i128) {
-        decrease_allowance(&e, from, spender, delta);
-    }
-
-    // --- Two-step Admin Transfer ---
-    pub fn propose_admin(e: Env, new_admin: Address) {
-        propose_admin(&e, &new_admin);
-    }
-    pub fn accept_admin(e: Env) {
-        accept_admin(&e);
-    }
-
-    // --- Dividend Distribution ---
-    pub fn distribute_dividend(e: Env, admin: Address, amount: i128) {
-        crate::dividend::distribute_dividend(&e, admin, amount);
-    }
-
-    // --- Permit ---
-    pub fn permit(e: Env, owner: Address, spender: Address, amount: i128, expiration_ledger: u32, nonce: u64, public_key: BytesN<32>, signature: BytesN<64>) {
-        crate::permit::permit(&e, owner, spender, amount, expiration_ledger, nonce, public_key, signature);
-    }
-    pub fn nonces(e: Env, owner: Address) -> u64 {
-        crate::permit::nonces(&e, owner)
+}   pub fn is_executable(e: Env, recurring_id: u32) -> bool {
+        is_executable(&e, recurring_id)
     }
 }
