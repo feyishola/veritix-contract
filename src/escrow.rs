@@ -1,6 +1,29 @@
 use soroban_sdk::{contracttype, token, Address, Bytes, Env, Vec};
 use crate::storage_types::DataKey;
 
+
+use crate::storage_types::MAX_ESCROW_AMOUNT;
+
+pub fn create_escrow(
+    e: Env,
+    depositor: Address,
+    beneficiary: Address,
+    token: Address,
+    amount: i128,
+    expiry_ledger: u32,
+    memo: Bytes,
+) -> u32 {
+    // 1. Existing baseline validation checks
+    // require_positive_amount(amount);
+
+    // 2. Supply Caps Rule: Enforce ceiling boundary to protect total liquidity pools
+    if amount > MAX_ESCROW_AMOUNT {
+        panic!("AmountTooLarge: use multi-party escrow for large amounts");
+    }
+
+    // Proceed with contract state allocation and structural storage...
+}
+
 #[contracttype]
 #[derive(Clone)]
 pub struct EscrowRecord {
