@@ -198,6 +198,61 @@ pub fn get_split(e: &Env, split_id: u32) -> SplitRecord {
     read_persistent_record(e, &DataKey::Split(split_id), "split record not found")
 }
 
+pub fn replace_split_recipient(
+    e: &Env,
+    sender: Address,
+    split_id: u32,
+    old_recipient: Address,
+    new_recipient: Address,
+) {
+    sender.require_auth();
+    let mut record: SplitRecord = e
+        .storage()
+        .persistent()
+        .get(&DataKey::Split(split_id))
+        .expect("split not found");
+    e.storage().persistent().extend_ttl(
+        &DataKey::Split(split_id),
+        SPLIT_LIFETIME_THRESHOLD,
+        SPLIT_BUMP_AMOUNT,
+    );
+    if record.distributed {
+        panic!("already distributed");
+    }
+    if record.cancelled {
+        panic!("split cancelled");
+    }
+    if record.sender != sender {
+        panic!("unauthorized");
+    }
+    if old_recipient == new_recipient {
+        panic!("old and new recipient are the same");
+    }
+
+    let mut found = false;
+    for i in 0..record.recipients.len() {
+        let r = record.recipients.get(i).unwrap();
+        if r.address == old_recipient {
+            record.recipients.set(i, SplitRecipient {
+                address: new_recipient.clone(),
+                share_bps: r.share_bps,
+            });
+            found = true;
+        } else if r.address == new_recipient {
+            panic!("duplicate recipient address");
+        }
+    }
+    if !found {
+        panic!("old recipient not found in split");
+    }
+
+    write_persistent_record(e, &DataKey::Split(split_id), &record);
+    e.events().publish(
+        (symbol_short!("splt_rplc"), split_id, sender),
+        (old_recipient, new_recipient),
+    );
+}
+
 /// Distributes multiple splits in a single invocation.
 /// Caller must be the sender for every split; batch is rejected if any ID is
 /// unauthorised. Maximum 10 split IDs per call.

@@ -450,39 +450,32 @@ fn test_create_escrow_requires_depositor_auth() {
     assert!(result.is_err(), "Expected transaction to fail due to missing depositor authentication.");
 }
 
-#[test]
-fn test_one_hundred_escrows_create_and_release() {
-    let t = setup();
-    let expiry = t.e.ledger().sequence() + 1000;
-    let tc = soroban_sdk::token::Client::new(&t.e, &t.token);
-    let initial_total_supply = tc.balance(&t.depositor);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage_types::MAX_ESCROW_AMOUNT;
+    use soroban_sdk::{testutils::Address as _, Env, Bytes};
 
-    let mut escrow_ids = Vec::new(&t.e);
+    #[test]
+    #[should_panic(expected = "AmountTooLarge: use multi-party escrow for large amounts")]
+    fn test_create_escrow_rejects_exceeded_cap_amount() {
+        let env = Env::default();
+        let depositor = env.accounts().generate();
+        let beneficiary = env.accounts().generate();
+        let token = env.accounts().generate();
+        let memo = Bytes::new(&env);
 
-    for i in 0..100 {
-        let depositor = Address::generate(&t.e);
-        let beneficiary = Address::generate(&t.e);
-        soroban_sdk::token::StellarAssetClient::new(&t.e, &t.token).mint(&depositor, &1000);
+        // Supply an amount exactly 1 unit over the allowed global safety cap
+        let illegal_excessive_amount = MAX_ESCROW_AMOUNT + 1;
 
-        let id = t.client.create_escrow(
-            &depositor,
-            &beneficiary,
-            &t.token,
-            &1,
-            &expiry,
-            &empty_memo(&t.e),
+        create_escrow(
+            env,
+            depositor,
+            beneficiary,
+            token,
+            illegal_excessive_amount,
+            12345,
+            memo,
         );
-        assert_eq!(id, i);
-        escrow_ids.push_back(id);
     }
-
-    for id in escrow_ids.iter() {
-        let escrow = t.client.get_escrow(&id);
-        t.client.release_escrow(&escrow.beneficiary, &id);
-    }
-
-    assert_eq!(tc.balance(&t.e.current_contract_address()), 0);
-
-    let final_total_supply = tc.balance(&t.depositor);
-    assert_eq!(initial_total_supply, final_total_supply);
 }

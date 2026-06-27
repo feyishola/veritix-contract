@@ -130,6 +130,11 @@ pub fn get_recurring_by_payer(e: &Env, payer: Address) -> Vec<u32> {
     e.storage().persistent().get(&key).unwrap_or_else(|| vec![e])
 }
 
+pub fn recurring_count_for_payer(e: &Env, payer: Address) -> u32 {
+    let key = DataKey::PayerRecurrings(payer);
+    e.storage().persistent().get::<DataKey, Vec<u32>>(&key).map_or(0, |ids| ids.len())
+}
+
 /// Returns the next ledger at which this recurring payment becomes eligible.
 /// Returns `u32::MAX` if the record is inactive or paused (sentinel = never).
 pub fn get_next_execution_ledger(e: &Env, recurring_id: u32) -> u32 {
