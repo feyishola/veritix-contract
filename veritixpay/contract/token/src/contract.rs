@@ -1,4 +1,4 @@
-use crate::admin::{check_admin, has_admin, read_admin, read_clawback_cosigner, transfer_admin, write_admin, write_clawback_cosigner};
+use crate::admin::{check_admin, has_admin, read_admin, read_clawback_cosigner, read_pending_admin, transfer_admin, write_admin, write_clawback_cosigner};
 use crate::allowance::{get_allowances_for_spender, read_allowance, revoke_all_allowances, spend_allowance, validate_allowance, write_allowance};
 use crate::balance::{decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance, spend_balance};
 use crate::batch::{approve_batch, clawback_batch, freeze_batch, transfer_batch_with_memo, unfreeze_batch};
@@ -100,6 +100,9 @@ impl VeritixToken {
     }
     pub fn admin_info(e: Env) -> AdminInfo {
         AdminInfo { admin: read_admin(&e), paused: is_paused(&e) }
+    }
+    pub fn get_pending_admin(e: Env) -> Option<Address> {
+        read_pending_admin(&e)
     }
 
     // --- Pause ---

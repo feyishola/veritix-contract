@@ -40,6 +40,10 @@ pub fn write_clawback_cosigner(e: &Env, cosigner: &Address) {
     e.storage().instance().set(&DataKey::ClawbackCoSigner, cosigner);
 }
 
+pub fn read_pending_admin(e: &Env) -> Option<Address> {
+    e.storage().instance().get(&DataKey::PendingAdmin)
+}
+
 pub fn propose_admin(e: &Env, new_admin: &Address) {
     let current_admin = read_admin(e);
     current_admin.require_auth();
