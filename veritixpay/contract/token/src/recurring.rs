@@ -1,5 +1,13 @@
 //! Recurring payment module.
 //! Supports schedule setup plus permissionless "crank" execution when intervals elapse.
+//!
+//! # Authorization Model
+//! - `setup_recurring` requires authorization from both the payer and payee.
+//! - `execute_recurring` is permissionless (anyone can trigger) but pulls funds from
+//!   the payer's balance at execution time, not at setup time. This is a "pull" model.
+//! - No funds are locked in the contract during setup; the payer's balance remains
+//!   in their account until each execution. Canceling a recurring payment therefore
+//!   does not require a refund since no funds were ever transferred to the contract.
 
 use crate::balance::{receive_balance, spend_balance};
 use crate::storage_types::{increment_counter, DataKey, PERSISTENT_BUMP_AMOUNT, PERSISTENT_LIFETIME_THRESHOLD};
