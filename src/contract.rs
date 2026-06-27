@@ -1,5 +1,5 @@
 use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, Vec};
-use crate::{escrow, multi_escrow};
+use crate::{escrow, multi_escrow, allowance};
 use crate::admin::validate_admin_address;
 use crate::storage_types::DataKey;
 use crate::validation::require_positive_amount; // Security audit import
@@ -82,6 +82,10 @@ pub trait VeriTixPayTrait {
         total_amount: i128,
         event_ledger: u32,
     ) -> u32;
+
+    // ── Allowance ─────────────────────────────────────────────────────────────
+    fn approve(e: Env, from: Address, spender: Address, amount: i128, expiration_ledger: u32);
+    fn transfer_from(e: Env, spender: Address, from: Address, to: Address, amount: i128);
 }
 
 #[contract]
@@ -207,5 +211,18 @@ impl VeriTixPayTrait for VeriTixPay {
         );
         multi_escrow::release_multi_escrow(e, sender, split_id);
         split_id
+    }
+
+    fn approve(e: Env, from: Address, spender: Address, amount: i128, expiration_ledger: u32) {
+        from.require_auth();
+        require_positive_amount(amount);
+        allowance::create_allowance(&e, &from, &spender, amount, expiration_ledger);
+    }
+
+    fn transfer_from(e: Env, spender: Address, from: Address, to: Address, amount: i128) {
+        spender.require_auth();
+        require_positive_amount(amount);
+        allowance::spend_allowance(&e, &from, &spender, amount);
+        // Implement the actual token transfer logic here
     }
 }
