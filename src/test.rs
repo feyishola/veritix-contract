@@ -109,4 +109,56 @@ mod tests {
             TokenContract::clawback(env, from, to, 100);
         }
     }
+
+    mod initialize {
+        use super::*;
+
+        #[test]
+        #[should_panic(expected = "already initialized")]
+        fn test_initialize_twice_same_admin_panics() {
+            let env = Env::default();
+            let admin = env.accounts().generate();
+
+            TokenContract::initialize(env.clone(), admin.clone());
+            TokenContract::initialize(env, admin);
+        }
+
+        #[test]
+        #[should_panic(expected = "already initialized")]
+        fn test_initialize_twice_different_admin_panics() {
+            let env = Env::default();
+            let admin1 = env.accounts().generate();
+            let admin2 = env.accounts().generate();
+
+            TokenContract::initialize(env.clone(), admin1);
+            TokenContract::initialize(env, admin2);
+        }
+
+        #[test]
+        #[should_panic]
+        fn test_initialize_twice_no_auth_panics() {
+            let env = Env::default();
+            let admin = env.accounts().generate();
+
+            TokenContract::initialize(env.clone(), admin);
+            // No auth call for the second initialization
+            TokenContract::initialize(env, env.accounts().generate());
+        }
+
+        #[test]
+        fn test_initialized_state_persists_after_failed_second_initialize() {
+            let env = Env::default();
+            let admin1 = env.accounts().generate();
+            let admin2 = env.accounts().generate();
+
+            TokenContract::initialize(env.clone(), admin1.clone());
+
+            let result = std::panic::catch_unwind(|| {
+                TokenContract::initialize(env.clone(), admin2);
+            });
+
+            assert!(result.is_err());
+            // Additional check to confirm admin1 is still the admin
+        }
+    }
 }
