@@ -37,6 +37,7 @@ pub struct EscrowRecord {
     pub released: bool,         // true only when fully released
     pub refunded: bool,
     pub memo: Bytes,            // #175: arbitrary tag — max 64 bytes
+    pub created_at_ledger: u32,
 }
 
 // Anti-spam configuration threshold (5 minutes cooldown window)
@@ -134,6 +135,7 @@ pub fn create_escrow(
         released: false,
         refunded: false,
         memo,               // #175
+        created_at_ledger: e.ledger().sequence(),
     };
 
     save_record(&e, &record);
@@ -300,4 +302,23 @@ pub fn get_escrowed_total(e: &Env) -> i128 {
     }
 
     total
+}
+
+pub fn get_escrows_batch(e: Env, escrow_ids: Vec<u32>) -> Vec<Option<EscrowRecord>> {
+    assert!(escrow_ids.len() <= 50, "batch size cannot exceed 50");
+    let mut result = Vec::new(&e);
+    for id in escrow_ids {
+        let record = e.storage().persistent().get::<_, EscrowRecord>(&DataKey::Escrow(id));
+        result.push_back(record);
+    }
+    result
+}
+
+pub fn get_escrow_age(e: Env, escrow_id: u32) -> u32 {
+    let record = load_record(&e, escrow_id);
+    if record.released || record.refunded {
+        0
+    } else {
+        e.ledger().sequence().saturating_sub(record.created_at_ledger)
+    }
 }

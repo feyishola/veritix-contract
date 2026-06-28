@@ -18,4 +18,5 @@ pub enum DataKey {
     BeneficiaryEscrows(Address),
     MultiEscrowCount,
     MultiEscrow(u32),
+    HolderSet,
 }

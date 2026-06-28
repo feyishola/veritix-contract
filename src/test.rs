@@ -63,3 +63,68 @@ mod tests {
         TokenContract::setup_recurring(env, payer, 100, 0);
     }
 }
+
+#[cfg(test)]
+mod airdrop_tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    use crate::contract::{VeriTixPay, VeriTixPayClient};
+    use crate::storage_types::DataKey;
+
+    fn setup_airdrop() -> (Env, VeriTixPayClient<'static>, Address, Address) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, VeriTixPay);
+        let client = VeriTixPayClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let token = env.register_stellar_asset_contract(admin.clone());
+        
+        // init admin
+        env.as_contract(&contract_id, || {
+            env.storage().persistent().set(&DataKey::Admin, &admin);
+        });
+
+        soroban_sdk::token::StellarAssetClient::new(&env, &token).mint(&admin, &100_000);
+        
+        (env, client, admin, token)
+    }
+
+    #[test]
+    fn test_airdrop_success() {
+        let (env, client, admin, token) = setup_airdrop();
+        
+        let holder1 = Address::generate(&env);
+        let holder2 = Address::generate(&env);
+
+        let mut holders: Vec<(Address, i128)> = Vec::new(&env);
+        holders.push_back((holder1.clone(), 300));
+        holders.push_back((holder2.clone(), 700));
+
+        env.as_contract(&client.address, || {
+            env.storage().persistent().set(&DataKey::HolderSet, &holders);
+        });
+
+        client.airdrop(&admin, &10_000, &token);
+
+        let tc = soroban_sdk::token::Client::new(&env, &token);
+        assert_eq!(tc.balance(&holder1), 3000); // 30% of 10k
+        assert_eq!(tc.balance(&holder2), 7000); // 70% of 10k
+    }
+
+    #[test]
+    #[should_panic(expected = "maximum 50 holders per airdrop call")]
+    fn test_airdrop_too_many_holders() {
+        let (env, client, admin, token) = setup_airdrop();
+        let mut holders: Vec<(Address, i128)> = Vec::new(&env);
+        
+        for _ in 0..51 {
+            holders.push_back((Address::generate(&env), 10));
+        }
+
+        env.as_contract(&client.address, || {
+            env.storage().persistent().set(&DataKey::HolderSet, &holders);
+        });
+
+        client.airdrop(&admin, &10_000, &token);
+    }
+}

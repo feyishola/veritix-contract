@@ -50,6 +50,8 @@ pub trait VeriTixPayTrait {
     fn get_escrows_by_depositor(e: Env, depositor: Address) -> Vec<u32>;
     fn get_escrows_by_beneficiary(e: Env, beneficiary: Address) -> Vec<u32>;
     fn escrowed_total(e: Env) -> i128;
+    fn get_escrows_batch(e: Env, escrow_ids: Vec<u32>) -> Vec<Option<escrow::EscrowRecord>>;
+    fn get_escrow_age(e: Env, escrow_id: u32) -> u32;
 
     // ── Multi-escrow ──────────────────────────────────────────────────────────
     fn create_multi_escrow(
@@ -82,6 +84,7 @@ pub trait VeriTixPayTrait {
         total_amount: i128,
         event_ledger: u32,
     ) -> u32;
+    fn airdrop(e: Env, admin: Address, total_amount: i128, token: Address) -> u32;
 }
 
 #[contract]
@@ -125,6 +128,14 @@ impl VeriTixPayTrait for VeriTixPay {
 
     fn escrowed_total(e: Env) -> i128 {
         escrow::get_escrowed_total(&e)
+    }
+
+    fn get_escrows_batch(e: Env, escrow_ids: Vec<u32>) -> Vec<Option<escrow::EscrowRecord>> {
+        escrow::get_escrows_batch(e, escrow_ids)
+    }
+
+    fn get_escrow_age(e: Env, escrow_id: u32) -> u32 {
+        escrow::get_escrow_age(e, escrow_id)
     }
 
     fn create_multi_escrow(
@@ -206,6 +217,31 @@ impl VeriTixPayTrait for VeriTixPay {
             event_ledger + 100,
         );
         multi_escrow::release_multi_escrow(e, sender, split_id);
+        split_id
+    }
+
+    fn airdrop(e: Env, admin: Address, total_amount: i128, token: Address) -> u32 {
+        crate::admin::check_admin(&e, &admin);
+        require_positive_amount(total_amount);
+
+        let holders: Vec<(Address, i128)> = e.storage().persistent().get(&DataKey::HolderSet).unwrap_or_else(|| Vec::new(&e));
+        assert!(holders.len() <= 50, "maximum 50 holders per airdrop call");
+        
+        let mut total_holdings: i128 = 0;
+        for holder in holders.iter() {
+            total_holdings += holder.1;
+        }
+        assert!(total_holdings > 0, "no holdings to airdrop to");
+
+        let mut recipients = Vec::new(&e);
+        for holder in holders.iter() {
+            let share = total_amount * holder.1 / total_holdings;
+            recipients.push_back((holder.0, share));
+        }
+
+        let expiry_ledger = e.ledger().sequence() + 100;
+        let split_id = multi_escrow::create_multi_escrow(e.clone(), admin.clone(), recipients, token, expiry_ledger);
+        multi_escrow::release_multi_escrow(e, admin, split_id);
         split_id
     }
 }
