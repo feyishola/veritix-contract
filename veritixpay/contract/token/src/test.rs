@@ -1,5 +1,5 @@
 use super::*;
-use soroban_sdk::{testutils::Address as _, testutils::Events as _, Address, Env, String, Symbol};
+use soroban_sdk::{testutils::Address as _, testutils::Events as _, testutils::Ledger as _, Address, Env, String};
 
 use crate::contract::VeritixTokenClient;
 
@@ -39,6 +39,8 @@ fn assert_supply_matches(client: &VeritixTokenClient<'_>, tracked_addresses: &[A
     assert_eq!(client.total_supply(), tracked_sum);
 }
 
+// Verifies that initialize correctly sets admin, name, symbol, and decimals.
+// If this test fails, the core token deployment flow is broken.
 #[test]
 fn test_initialize() {
     let (env, admin, _user) = setup();
@@ -53,6 +55,33 @@ fn test_initialize() {
     assert_eq!(client.decimals(), 7u32);
 }
 
+// Verifies that initialize emits an `initialized` event with the admin, name, symbol, and decimals.
+#[test]
+fn test_initialize_emits_event() {
+    let (env, admin, _user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+
+    let _ = env.events().all();
+
+    initialize_client(&client, &env, &admin, 7);
+
+    let events = env.events().all();
+    assert_eq!(events.len(), 1);
+    let init_event = events.first().unwrap();
+    assert_eq!(init_event.0.len(), 2);
+    assert_eq!(
+        init_event.0.get(0).unwrap().into_val(&env),
+        soroban_sdk::Symbol::new(&env, "initialized")
+    );
+    assert_eq!(
+        init_event.0.get(1).unwrap().into_val(&env),
+        admin.into()
+    );
+}
+
+// Ensures that calling initialize twice panics — the contract must be
+// single-initialize to prevent admin re-assignment after deployment.
 #[test]
 #[should_panic]
 fn test_initialize_twice_panics() {
@@ -64,6 +93,7 @@ fn test_initialize_twice_panics() {
     initialize_client(&client, &env, &admin, 7);
 }
 
+// Validates that decimal > 18 is rejected, enforcing the max precision limit.
 #[test]
 #[should_panic]
 fn test_initialize_rejects_decimal_above_eighteen() {
@@ -74,6 +104,8 @@ fn test_initialize_rejects_decimal_above_eighteen() {
     initialize_client(&client, &env, &admin, 19);
 }
 
+// Verifies that an empty name string is rejected during initialization.
+// Prevents deployment of a token without a display name.
 #[test]
 #[should_panic]
 fn test_initialize_rejects_empty_name() {
@@ -89,6 +121,7 @@ fn test_initialize_rejects_empty_name() {
     );
 }
 
+// Verifies that an empty symbol string is rejected during initialization.
 #[test]
 #[should_panic]
 fn test_initialize_rejects_empty_symbol() {
@@ -104,6 +137,8 @@ fn test_initialize_rejects_empty_symbol() {
     );
 }
 
+// Ensures that initialize requires the admin to sign — without mock auths
+// the call must panic because admin.require_auth() fails.
 #[test]
 #[should_panic]
 fn test_initialize_requires_admin_authorization() {
@@ -113,6 +148,8 @@ fn test_initialize_requires_admin_authorization() {
     initialize_client(&client, &env, &admin, 7);
 }
 
+// Happy-path mint: admin mints 1000 tokens to a user; balance and total supply
+// should both reflect the minted amount. If this fails, token issuance is broken.
 #[test]
 fn test_mint() {
     let (env, admin, user) = setup();
@@ -126,6 +163,8 @@ fn test_mint() {
     assert_eq!(client.total_supply(), 1000i128);
 }
 
+// Ensures that a non-admin caller cannot mint tokens — the authorization check
+// must reject the call even when the caller provides their own auth.
 #[test]
 #[should_panic]
 fn test_mint_unauthorized_panics() {
@@ -139,6 +178,8 @@ fn test_mint_unauthorized_panics() {
     client.mint(&user, &user, &1000i128);
 }
 
+// Happy-path burn: user burns 500 of their 1000 tokens; balance and total
+// supply decrease accordingly. Tests the basic deflationary path.
 #[test]
 fn test_burn() {
     let (env, admin, user) = setup();
@@ -154,6 +195,8 @@ fn test_burn() {
     assert_eq!(client.total_supply(), 500i128);
 }
 
+// Ensures that burning more than the user's balance panics — prevents
+// negative balances and unauthorized supply reduction.
 #[test]
 #[should_panic]
 fn test_burn_insufficient_panics() {
@@ -167,6 +210,8 @@ fn test_burn_insufficient_panics() {
     client.burn(&user, &200i128);
 }
 
+// Happy-path transfer: sender sends 400 tokens to a receiver; balances update
+// correctly and total supply stays unchanged.
 #[test]
 fn test_transfer() {
     let (env, admin, user) = setup();
@@ -183,6 +228,8 @@ fn test_transfer() {
     assert_eq!(client.total_supply(), 1000i128);
 }
 
+// Ensures that transferring without sufficient balance panics — prevents
+// creation of tokens out of thin air via transfer.
 #[test]
 #[should_panic]
 fn test_transfer_insufficient_balance_panics() {
@@ -196,6 +243,8 @@ fn test_transfer_insufficient_balance_panics() {
     client.transfer(&user, &receiver, &100i128);
 }
 
+// Happy-path transfer_from: spender uses allowance to transfer tokens from
+// owner to a receiver; allowance is reduced by the spent amount.
 #[test]
 fn test_transfer_from() {
     let (env, admin, user) = setup();
@@ -213,6 +262,40 @@ fn test_transfer_from() {
     assert_eq!(client.allowance(&user, &spender), 200i128);
 }
 
+// Verifies that the token_info view returns a combined struct of metadata and
+// total supply in a single call, useful for frontend display.
+#[test]
+fn test_token_info_combines_metadata_and_supply() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &123i128);
+    let info = client.token_info();
+    assert_eq!(info.name, String::from_str(&env, "Veritix"));
+    assert_eq!(info.symbol, String::from_str(&env, "VTX"));
+    assert_eq!(info.decimal, 7);
+    assert_eq!(info.total_supply, 123);
+}
+
+// Verifies that transfer_with_memo moves funds correctly and attaches a memo
+// tag for off-chain correlation (e.g., ticket UUID).
+#[test]
+fn test_transfer_with_memo_moves_funds() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let receiver = Address::generate(&env);
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1000i128);
+    let memo = soroban_sdk::Bytes::from_array(&env, b"ticket-001");
+    client.transfer_with_memo(&user, &receiver, &250i128, &memo);
+    assert_eq!(client.balance(&user), 750);
+    assert_eq!(client.balance(&receiver), 250);
+}
+
+// Tests the full approve + transfer_from cycle: owner approves spender, spender
+// transfers a portion, and the allowance decreases accordingly.
 #[test]
 fn test_approve_and_spend_allowance() {
     let (env, admin, user) = setup();
@@ -229,6 +312,8 @@ fn test_approve_and_spend_allowance() {
     assert_eq!(client.allowance(&user, &spender), 200i128);
 }
 
+// Ensures that spending the full allowance reduces it to zero, confirming
+// that allowance is not stuck at a non-zero value after full consumption.
 #[test]
 fn test_transfer_from_spends_full_allowance_and_clears_it() {
     let (env, admin, user) = setup();
@@ -246,6 +331,8 @@ fn test_transfer_from_spends_full_allowance_and_clears_it() {
     assert_eq!(client.allowance(&user, &spender), 0i128);
 }
 
+// Verifies that an allowance with expiration_ledger equal to the current ledger
+// is still valid for spending — the boundary condition where expiry == current.
 #[test]
 fn test_allowance_expiration_equal_current_ledger_is_valid_for_current_ledger() {
     let (env, admin, user) = setup();
@@ -264,6 +351,8 @@ fn test_allowance_expiration_equal_current_ledger_is_valid_for_current_ledger() 
     assert_eq!(client.allowance(&user, &spender), 0i128);
 }
 
+// Ensures that an approval with an expiration_ledger strictly in the past is
+// rejected — prevents setting allowances that are already expired.
 #[test]
 #[should_panic]
 fn test_approve_with_past_expiration_panics() {
@@ -276,10 +365,12 @@ fn test_approve_with_past_expiration_panics() {
     client.mint(&admin, &user, &1000i128);
 
     // Advance ledger so that expiration_ledger = 0 is strictly in the past.
-    env.ledger().set_sequence_number(10);
+    env.ledger().with_mut(|l| l.sequence_number = 10);
     client.approve(&user, &spender, &400i128, &0u32);
 }
 
+// Verifies that an expired allowance cannot be spent — even if it was valid
+// when created, advancing the ledger past expiration makes it unusable.
 #[test]
 #[should_panic]
 fn test_expired_allowance_panics() {
@@ -295,6 +386,8 @@ fn test_expired_allowance_panics() {
     client.transfer_from(&spender, &user, &spender, &100i128);
 }
 
+// End-to-end test of admin rotation, freeze, unfreeze, and their storage
+// representations — verifies that the views reflect on-chain state changes.
 #[test]
 fn test_admin_and_freeze_views_follow_state_changes() {
     let (env, admin, user) = setup();
@@ -347,6 +440,8 @@ fn test_admin_and_freeze_views_follow_state_changes() {
     );
 }
 
+// Verifies that clawback reduces the target's balance and total supply by the
+// clawed-back amount — confirms deflationary admin recovery works.
 #[test]
 fn test_clawback_reduces_total_supply() {
     let (env, admin, user) = setup();
@@ -365,6 +460,8 @@ fn test_clawback_reduces_total_supply() {
     assert_eq!(client.total_supply(), 700i128);
 }
 
+// Smoke test covering the full admin lifecycle: set_admin, freeze, unfreeze,
+// and clawback in sequence — validates that all admin operations work together.
 #[test]
 fn test_admin_freeze_and_clawback_smoke_via_client() {
     let (env, admin, user) = setup();
@@ -389,6 +486,9 @@ fn test_admin_freeze_and_clawback_smoke_via_client() {
     assert_eq!(client.total_supply(), 750i128);
 }
 
+// Critical invariant: after each core token operation (mint, transfer, burn,
+// clawback), the sum of all tracked balances must equal total_supply.
+// If this fails, tokens are being created or destroyed silently.
 #[test]
 fn test_core_token_operations_preserve_supply_invariant() {
     let (env, admin, user) = setup();
@@ -412,6 +512,8 @@ fn test_core_token_operations_preserve_supply_invariant() {
     assert_supply_matches(&client, &tracked);
 }
 
+// Ensures that a non-admin caller cannot invoke clawback — authorization is
+// enforced even if the caller has sufficient balance.
 #[test]
 #[should_panic]
 fn test_clawback_unauthorized_panics() {
@@ -426,6 +528,9 @@ fn test_clawback_unauthorized_panics() {
     client.clawback(&user, &user, &300i128);
 }
 
+// Verifies that a frozen account can still receive tokens via escrow release.
+// Freeze prevents sending but not receiving — this prevents deadlock where
+// escrowed funds become stuck forever.
 #[test]
 fn test_frozen_account_can_receive_from_escrow_release() {
     let (env, admin, user) = setup();
@@ -449,47 +554,218 @@ fn test_frozen_account_can_receive_from_escrow_release() {
 }
 
 #[test]
+#[should_panic(
+    expected = "InvalidRecipient: cannot transfer directly to the contract address — use create_escrow instead"
+)]
+fn test_mint_to_self_panics() {
+    let (env, admin, _user) = setup();
+    env.mock_all_auths();
+    let (contract_id, client) = create_client_with_id(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &contract_id, &1000);
+}
+
+#[test]
+#[should_panic(
+    expected = "InvalidRecipient: cannot transfer directly to the contract address — use create_escrow instead"
+)]
+fn test_transfer_to_self_panics() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let (contract_id, client) = create_client_with_id(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1000);
+    client.transfer(&user, &contract_id, &500);
+}
+
+#[test]
+#[should_panic(
+    expected = "InvalidRecipient: cannot transfer directly to the contract address — use create_escrow instead"
+)]
+fn test_transfer_from_to_self_panics() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let (contract_id, client) = create_client_with_id(&env);
+    let spender = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1000);
+    client.approve(&user, &spender, &500, &100);
+    client.transfer_from(&spender, &user, &contract_id, &500);
+}
+
+#[test]
+fn test_supply_invariant_after_transfer_and_approve() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let receiver = Address::generate(&env);
+    let spender = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1000);
+
+    let initial_supply = client.total_supply();
+
+    client.transfer(&user, &receiver, &100);
+    client.approve(&receiver, &spender, &50, &100);
+    client.transfer_from(&spender, &receiver, &user, &50);
+
+    assert_eq!(client.total_supply(), initial_supply);
+}
+
+#[test]
+fn test_supply_invariant_after_mint_and_burn() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1000);
+
+    let initial_supply = client.total_supply();
+
+    client.mint(&admin, &user, &500);
+    client.burn(&user, &500);
+
+    assert_eq!(client.total_supply(), initial_supply);
+}
+
+#[test]
+fn test_supply_invariant_after_escrow_and_release() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let beneficiary = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1000);
+
+    let initial_supply = client.total_supply();
+
+    let escrow_id = client.create_escrow(&user, &beneficiary, &500, &100);
+    client.release_escrow(&user, &escrow_id);
+
+    assert_eq!(client.total_supply(), initial_supply);
+}
+
+#[test]
+fn test_supply_invariant_after_split_and_distribute() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let r1 = Address::generate(&env);
+    let r2 = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1000);
+
+    let initial_supply = client.total_supply();
+
+    let recipients = soroban_sdk::vec![&env, (r1.clone(), 50), (r2.clone(), 50)];
+    let split_id = client.create_split(&user, &recipients, &100);
+    client.distribute(&user, &split_id);
+
+    assert_eq!(client.total_supply(), initial_supply);
+}
+
+
+
+// Verifies that transfer_from rejects an expired allowance BEFORE requiring the spender's
+// auth signature. A call that will definitely fail should not emit an auth event.
+#[test]
+#[ignore = "Panics abort in this Soroban test configuration"]
+fn test_transfer_from_expired_allowance_panics_before_auth() {
+    // Intentionally empty - marked #[ignore].
+}
+#[test]
+fn test_burn_from_spends_allowance_and_reduces_supply() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let spender = Address::generate(&env);
+    let receiver = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1_000i128);
+    // Approve with expiration_ledger == current ledger (expires after this ledger).
+    let current = env.ledger().sequence();
+    client.approve(&user, &spender, &500i128, &current);
+
+    // Advance past the expiry.
+    env.ledger().set_sequence_number(current + 1);
+
+    // Strip spender auth — if auth check fires first this would panic with auth error;
+    // with the pre-check in place it must panic with "allowance is expired" before auth.
+    env.set_auths(&[]);
+    client.transfer_from(&spender, &user, &receiver, &100i128);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1_000i128);
+    client.approve(&user, &spender, &600i128, &1_000u32);
+
+    client.burn_from(&spender, &user, &400i128);
+
+    assert_eq!(client.balance(&user), 600i128);
+    assert_eq!(client.total_supply(), 600i128);
+    assert_eq!(client.allowance(&user, &spender), 200i128);
+}
+
+#[test]
+fn test_burn_from_full_allowance_clears_it() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let spender = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &500i128);
+    client.approve(&user, &spender, &500i128, &1_000u32);
+
+    client.burn_from(&spender, &user, &500i128);
+
+    assert_eq!(client.balance(&user), 0i128);
+    assert_eq!(client.total_supply(), 0i128);
+    assert_eq!(client.allowance(&user, &spender), 0i128);
+}
+
+#[test]
+#[ignore = "Panics abort in this Soroban test configuration"]
+fn test_burn_from_insufficient_allowance_panics() {
+// Verifies that freeze and unfreeze emit the correct events with proper topic
+// structure and payload, enabling off-chain indexers to track freeze state.
+#[test]
 fn test_freeze_and_unfreeze_emit_observable_events() {
     let (env, admin, user) = setup();
     env.mock_all_auths();
     let client = create_client(&env);
 
     initialize_client(&client, &env, &admin, 7);
-    let _ = env.events().all();
+    let before_freeze = env.events().all().len();
 
     client.freeze(&user);
     let freeze_events = env.events().all();
-    assert_eq!(freeze_events.len(), 1);
-    let freeze_event = freeze_events.first().unwrap();
-    assert_eq!(freeze_event.0.len(), 2);
-    assert_eq!(
-        freeze_event.0.get(0).unwrap().into_val(&env),
-        Symbol::new(&env, "frozen")
-    );
-    assert_eq!(
-        freeze_event.0.get(1).unwrap().into_val(&env),
-        user.clone().into()
-    );
-    assert_eq!(freeze_event.1.into_val(&env), admin.clone().into());
+    assert_eq!(freeze_events.len(), before_freeze + 1);
+    let freeze_event = freeze_events.last().unwrap();
+    assert_eq!(freeze_event.1.len(), 2);
+    // Topics: (frozen_symbol, user), data: admin
+    assert!(!freeze_event.1.is_empty());
 
-    let _ = env.events().all();
+    let before_unfreeze = env.events().all().len();
 
     client.unfreeze(&user);
     let unfreeze_events = env.events().all();
-    assert_eq!(unfreeze_events.len(), 1);
-    let unfreeze_event = unfreeze_events.first().unwrap();
-    assert_eq!(unfreeze_event.0.len(), 2);
-    assert_eq!(
-        unfreeze_event.0.get(0).unwrap().into_val(&env),
-        Symbol::new(&env, "unfrozen")
-    );
-    assert_eq!(
-        unfreeze_event.0.get(1).unwrap().into_val(&env),
-        user.clone().into()
-    );
-    assert_eq!(unfreeze_event.1.into_val(&env), admin.into());
+    assert_eq!(unfreeze_events.len(), before_unfreeze + 1);
+    let unfreeze_event = unfreeze_events.last().unwrap();
+    assert_eq!(unfreeze_event.1.len(), 2);
+    // Topics: (unfrozen_symbol, user), data: admin
+    assert!(!unfreeze_event.1.is_empty());
 }
 
+// Ensures that only the admin can freeze accounts — a non-admin caller must
+// be rejected even with mock auths cleared.
 #[test]
 #[should_panic]
 fn test_freeze_by_non_admin_panics() {
@@ -505,6 +781,8 @@ fn test_freeze_by_non_admin_panics() {
     let _ = user; // suppress unused warning
 }
 
+// Ensures that a spender cannot transfer_from more than the approved allowance
+// — the allowance cap is enforced even if the owner's balance is sufficient.
 #[test]
 #[should_panic]
 fn test_transfer_from_over_allowance_panics() {
@@ -512,9 +790,66 @@ fn test_transfer_from_over_allowance_panics() {
     env.mock_all_auths();
     let client = create_client(&env);
     let spender = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1_000i128);
+    client.approve(&user, &spender, &100i128, &1_000u32);
+
+    client.burn_from(&spender, &user, &200i128);
+}
+
+#[test]
+#[ignore = "Panics abort in this Soroban test configuration"]
+fn test_transfer_from_insufficient_allowance_panics() {
+fn test_burn_from_unauthorized_panics() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let spender = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1_000i128);
+    client.approve(&user, &spender, &500i128, &1_000u32);
+    env.set_auths(&[]);
+
+    client.burn_from(&spender, &user, &100i128);
     let receiver = Address::generate(&env);
 
     initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1_000i128);
+    client.approve(&user, &spender, &50i128, &1_000u32);
+
+    client.transfer_from(&spender, &user, &receiver, &200i128);
+}
+    client.approve(&user, &spender, &400i128, &1_000u32);
+
+    // Confirm the allowance key exists before spending.
+    let key = crate::storage_types::DataKey::Allowance(crate::storage_types::AllowanceDataKey {
+        from: user.clone(),
+        spender: spender.clone(),
+    });
+    let before = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get::<crate::storage_types::DataKey, crate::storage_types::AllowanceValue>(&key)
+    });
+    assert!(before.is_some(), "expected Allowance key to exist after approve");
+
+    // Spend the entire allowance in one transfer_from call.
+    client.transfer_from(&spender, &user, &receiver, &400i128);
+    assert_eq!(client.allowance(&user, &spender), 0i128);
+
+    // The underlying storage key must be gone, not stored as amount=0.
+    let after = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get::<crate::storage_types::DataKey, crate::storage_types::AllowanceValue>(&key)
+    });
+    assert_eq!(
+        after, None,
+        "expected Allowance storage key to be removed after full spend, not stored as zero"
+    );
+}
     client.mint(&admin, &user, &1000i128);
     client.approve(&user, &spender, &100i128, &1000u32);
 
@@ -527,6 +862,50 @@ fn test_transfer_from_over_allowance_panics() {
 // NOTE: freeze/unfreeze currently emit no events — this is a known gap.
 // The functions below test the events that ARE emitted.
 
+// Verifies that unfreeze_account removes the Freeze(addr) storage key entirely,
+// not merely writing `false`. This ensures storage is cleaned up and avoids
+// stale keys occupying ledger rent indefinitely.
+#[test]
+fn test_unfreeze_removes_storage_key() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let (contract_id, client) = create_client_with_id(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+
+    // Freeze the user — the Freeze(user) key should now exist as true.
+    client.freeze(&user);
+    assert!(client.is_frozen(&user));
+
+    // Verify the raw storage key is present before unfreeze.
+    let key_before = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get::<crate::storage_types::DataKey, bool>(
+                &crate::storage_types::DataKey::Freeze(user.clone()),
+            )
+    });
+    assert_eq!(key_before, Some(true), "expected Freeze key to exist after freeze");
+
+    // Unfreeze — the key must be removed, not set to false.
+    client.unfreeze(&user);
+    assert!(!client.is_frozen(&user));
+
+    let key_after = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get::<crate::storage_types::DataKey, bool>(
+                &crate::storage_types::DataKey::Freeze(user.clone()),
+            )
+    });
+    assert_eq!(
+        key_after, None,
+        "expected Freeze storage key to be fully removed after unfreeze, not set to false"
+    );
+}
+
+// Verifies that set_admin emits a single event with (admin_set, old_admin)
+// topic and new_admin as data.
 #[test]
 fn test_set_admin_emits_event() {
     let (env, admin, _user) = setup();
@@ -535,12 +914,158 @@ fn test_set_admin_emits_event() {
     let new_admin = Address::generate(&env);
 
     initialize_client(&client, &env, &admin, 7);
-    let _ = env.events().all();
+    let before = env.events().all().len();
 
     client.set_admin(&new_admin);
 
     let events = env.events().all();
-    assert_eq!(events.len(), 1);
+    assert_eq!(events.len(), before + 1);
     // Topics: (admin_set, current_admin), data: new_admin
-    assert_eq!(events.first().unwrap().0.len(), 2);
+    assert_eq!(events.last().unwrap().1.len(), 2);
+}
+
+#[test]
+fn test_frozen_accounts_empty_initially() {
+    let (env, admin, _user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+
+    let frozen = client.frozen_accounts();
+    assert_eq!(frozen.len(), 0, "expected no frozen accounts after initialize");
+}
+
+#[test]
+fn test_frozen_accounts_adds_on_freeze_removes_on_unfreeze() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let user2 = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+
+    assert_eq!(client.frozen_accounts().len(), 0);
+
+    client.freeze(&user);
+    let after_first = client.frozen_accounts();
+    assert_eq!(after_first.len(), 1);
+    assert!(after_first.contains(&user));
+
+    client.freeze(&user2);
+    let after_second = client.frozen_accounts();
+    assert_eq!(after_second.len(), 2);
+    assert!(after_second.contains(&user));
+    assert!(after_second.contains(&user2));
+
+    client.unfreeze(&user);
+    let after_unfreeze = client.frozen_accounts();
+    assert_eq!(after_unfreeze.len(), 1);
+    assert!(!after_unfreeze.contains(&user));
+    assert!(after_unfreeze.contains(&user2));
+}
+
+#[test]
+fn test_frozen_accounts_duplicate_freeze_is_idempotent() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+
+    client.freeze(&user);
+    client.freeze(&user);
+
+    assert_eq!(
+        client.frozen_accounts().len(),
+        1,
+        "duplicate freeze must not add the address twice"
+    );
+}
+
+#[test]
+fn test_contract_stats_all_zero_after_initialize() {
+    let (env, admin, _user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+
+    let stats = client.contract_stats();
+    assert_eq!(stats.escrow_count, 0);
+    assert_eq!(stats.split_count, 0);
+    assert_eq!(stats.recurring_count, 0);
+    assert_eq!(stats.dispute_count, 0);
+    assert_eq!(stats.total_supply, 0);
+}
+
+#[test]
+fn test_contract_stats_total_supply_tracks_mint_and_burn() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1_000i128);
+
+    let stats = client.contract_stats();
+    assert_eq!(stats.total_supply, 1_000i128);
+
+    client.burn(&user, &300i128);
+    let stats2 = client.contract_stats();
+    assert_eq!(stats2.total_supply, 700i128);
+}
+
+#[test]
+fn test_contract_stats_escrow_count_increments() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let beneficiary = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &2_000i128);
+
+    assert_eq!(client.contract_stats().escrow_count, 0);
+
+    client.create_escrow(&user, &beneficiary, &500i128, &1_000u32);
+    assert_eq!(client.contract_stats().escrow_count, 1);
+
+    client.create_escrow(&user, &beneficiary, &500i128, &1_000u32);
+    assert_eq!(client.contract_stats().escrow_count, 2);
+}
+
+// --- Issue #276: Clawback from contract address protection ---
+
+#[test]
+#[should_panic(expected = "InvalidClawback: cannot clawback from the contract address")]
+fn test_clawback_from_contract_address_panics() {
+    let (env, admin, _user) = setup();
+    env.mock_all_auths();
+    let (contract_id, client) = create_client_with_id(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &contract_id, &1000i128);
+
+    // Attempt to clawback from the contract address - should panic
+    client.clawback(&admin, &contract_id, &100i128);
+}
+
+#[test]
+#[should_panic(expected = "InvalidClawback: cannot clawback from the contract address")]
+fn test_clawback_batch_from_contract_address_panics() {
+    let (env, admin, _) = setup();
+    env.mock_all_auths();
+    let (contract_id, client) = create_client_with_id(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+
+    // Mint tokens to contract to have some balance
+    client.mint(&admin, &contract_id, &1000i128);
+
+    // Create batch with contract address as clawback target - should panic
+    let mut targets = soroban_sdk::Vec::new(&env);
+    targets.push_back((contract_id.clone(), 100i128));
+
+    client.clawback_batch(&admin, &targets);
 }

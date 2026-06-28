@@ -1,17 +1,22 @@
 #![no_std]
 #![allow(unexpected_cfgs)]
 
-// Veritix Pay contract modules.
-// Contributors: see CONTRIBUTING.md for how to get started.
+#[cfg(test)]
+extern crate std;
 
 pub mod admin;
 pub mod allowance;
 pub mod balance;
+pub mod batch;
 pub mod dispute;
+pub mod dividend;
 pub mod escrow;
 pub mod freeze;
 pub mod metadata;
+pub mod pause;
+pub mod permit;
 pub mod recurring;
+pub mod snapshot;
 pub mod splitter;
 pub mod storage_types;
 pub mod validation;
@@ -40,9 +45,21 @@ mod admin_test;
 mod splitter_test;
 
 #[cfg(test)]
+mod batch_test;
+
+#[cfg(test)]
 mod dispute_test;
 
 #[cfg(test)]
+mod pause_test;
+
+#[cfg(test)]
 mod recurring_test;
+
+#[cfg(test)]
+mod freeze_test;
+
+#[cfg(test)]
+mod contract_test;
 
 pub use crate::contract::VeritixToken;

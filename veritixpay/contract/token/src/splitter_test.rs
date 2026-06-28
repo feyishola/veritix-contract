@@ -23,6 +23,8 @@ fn make_recipients(e: &Env, shares: &[(Address, u32)]) -> Vec<SplitRecipient> {
     v
 }
 
+// Verifies that create_split stores a record with correct sender, amount, and
+// initial state (not distributed, not cancelled).
 #[test]
 fn test_create_split_stores_record() {
     let e = setup_env();
@@ -43,6 +45,8 @@ fn test_create_split_stores_record() {
     });
 }
 
+// Happy-path distribution: creates a 50/50 split between two recipients and
+// verifies each receives exactly half the total amount.
 #[test]
 fn test_distribute_two_recipients_equal_split() {
     let e = setup_env();
@@ -62,6 +66,9 @@ fn test_distribute_two_recipients_equal_split() {
     });
 }
 
+// Verifies that cancelling a split refunds the full amount to the sender and
+// marks the record as cancelled (not distributed). If this fails, senders
+// cannot recover funds from abandoned splits.
 #[test]
 fn test_cancel_split_refunds_sender_and_marks_record() {
     let e = setup_env();
@@ -86,6 +93,9 @@ fn test_cancel_split_refunds_sender_and_marks_record() {
     });
 }
 
+// Ensures that rounding dust from BPS-based division always goes to the last
+// recipient. With 3 recipients splitting 10 units by 3333/3333/3334 bps,
+// distribution must be 3 + 3 + 4 (not 3 + 3 + 3 with 1 lost).
 #[test]
 fn test_distribute_rounding_dust_goes_to_last_recipient() {
     let e = setup_env();
@@ -110,6 +120,8 @@ fn test_distribute_rounding_dust_goes_to_last_recipient() {
     });
 }
 
+// Ensures that a non-sender caller cannot trigger distribution — the auth
+// check must reject unauthorized distribute calls.
 #[test]
 #[should_panic(expected = "unauthorized")]
 fn test_distribute_unauthorized_panics() {
@@ -127,6 +139,8 @@ fn test_distribute_unauthorized_panics() {
     });
 }
 
+// Ensures that distributing an already-distributed split panics — prevents
+// double distribution that would drain the contract balance.
 #[test]
 #[should_panic(expected = "already distributed")]
 fn test_double_distribute_panics() {
@@ -144,6 +158,8 @@ fn test_double_distribute_panics() {
     });
 }
 
+// Ensures that cancelling an already-distributed split panics — once funds
+// are sent, the sender cannot claw them back via cancel.
 #[test]
 #[should_panic(expected = "already distributed")]
 fn test_cancel_after_distribute_panics() {
@@ -161,6 +177,8 @@ fn test_cancel_after_distribute_panics() {
     });
 }
 
+// Ensures that distributing a cancelled split panics — funds have already
+// been returned to the sender.
 #[test]
 #[should_panic(expected = "split cancelled")]
 fn test_distribute_after_cancel_panics() {
@@ -178,6 +196,8 @@ fn test_distribute_after_cancel_panics() {
     });
 }
 
+// Ensures that creating a split with an empty recipient list is rejected —
+// distribution to zero recipients is meaningless and wastes storage.
 #[test]
 #[should_panic(expected = "recipients list cannot be empty")]
 fn test_create_split_rejects_empty_recipients() {
@@ -192,6 +212,8 @@ fn test_create_split_rejects_empty_recipients() {
     });
 }
 
+// Ensures that creating a split with a recipient that has 0 bps is rejected
+// — zero-share recipients serve no purpose and can cause unexpected dust.
 #[test]
 #[should_panic(expected = "recipient share_bps cannot be zero")]
 fn test_create_split_rejects_zero_share_recipient() {
@@ -208,6 +230,8 @@ fn test_create_split_rejects_zero_share_recipient() {
     });
 }
 
+// Ensures that duplicate recipient addresses are rejected — prevents ambiguity
+// about which duplicate receives the funds.
 #[test]
 #[should_panic(expected = "duplicate recipient address")]
 fn test_create_split_rejects_duplicate_recipients() {
@@ -223,6 +247,8 @@ fn test_create_split_rejects_duplicate_recipients() {
     });
 }
 
+// Ensures that a split with zero or negative total amount is rejected —
+// escrows and splits must lock a positive amount.
 #[test]
 #[should_panic(expected = "amount must be positive")]
 fn test_create_split_rejects_non_positive_amount() {
@@ -237,6 +263,8 @@ fn test_create_split_rejects_non_positive_amount() {
     });
 }
 
+// Verifies the 20-recipient cap — creating a split with 21 recipients must be
+// rejected to stay within Soroban's computational and ledger entry limits.
 #[test]
 #[should_panic(expected = "TooManyRecipients: maximum 20 recipients allowed")]
 fn test_create_split_too_many_recipients_panics() {
@@ -259,6 +287,9 @@ fn test_create_split_too_many_recipients_panics() {
     });
 }
 
+// Critical invariant: after split creation and distribution, the sum of all
+// tracked balances must equal total supply — confirms tokens are not created
+// or destroyed during the split lifecycle.
 #[test]
 fn test_split_create_and_distribute_preserves_supply() {
     let e = setup_env();
@@ -293,6 +324,8 @@ fn test_split_create_and_distribute_preserves_supply() {
 
 // --- Issue #165: cancel_split tests ---
 
+// Ensures that only the sender can cancel a split — a third party hacker must
+// be rejected with "unauthorized".
 #[test]
 #[should_panic(expected = "unauthorized")]
 fn test_cancel_split_unauthorized_panics() {
@@ -310,6 +343,8 @@ fn test_cancel_split_unauthorized_panics() {
     });
 }
 
+// Verifies that cancelling a split preserves the supply invariant — funds
+// return to sender and total supply is unchanged.
 #[test]
 fn test_cancel_preserves_supply_invariant() {
     let e = setup_env();
@@ -343,6 +378,8 @@ fn test_cancel_preserves_supply_invariant() {
 
 // --- Issue #162: Event emission tests ---
 
+// Verifies that distribute emits a single event with (split_distributed,
+// split_id, sender) topics and total_amount as data.
 #[test]
 fn test_distribute_emits_event() {
     let e = setup_env();
@@ -364,12 +401,14 @@ fn test_distribute_emits_event() {
     let events = e.events().all();
     assert_eq!(events.len(), 1);
     // Topics: (split_distributed, split_id, sender), data: total_amount
-    assert_eq!(events.first().unwrap().0.len(), 3);
+    assert_eq!(events.first().unwrap().1.len(), 3);
 }
 
 // NOTE: create_split currently emits no event — this is a known gap (see issue #162).
 // The distribute function emits split_distributed after funds are sent to recipients.
 
+// Verifies that cancel_split emits a single event with (split_cancelled,
+// split_id, caller) topics and total_amount as data.
 #[test]
 fn test_cancel_split_emits_event() {
     let e = setup_env();
@@ -390,11 +429,12 @@ fn test_cancel_split_emits_event() {
     let events = e.events().all();
     assert_eq!(events.len(), 1);
     // Topics: (split_cancelled, split_id, caller), data: total_amount
-    assert_eq!(events.first().unwrap().0.len(), 3);
+    assert_eq!(events.first().unwrap().1.len(), 3);
 }
 
 // --- Split counter tests ---
 
+// Ensures the split counter starts at zero before any splits are created.
 #[test]
 fn test_split_count_starts_at_zero() {
     let e = setup_env();
@@ -406,6 +446,8 @@ fn test_split_count_starts_at_zero() {
     });
 }
 
+// Verifies the split counter increments correctly and split IDs are sequential
+// (1, 2, 3) without gaps.
 #[test]
 fn test_split_count_increments_on_create() {
     let e = setup_env();
@@ -436,5 +478,147 @@ fn test_split_count_increments_on_create() {
         let split_id = create_split(&e, sender.clone(), recipients, 1000);
         assert_eq!(split_id, 3);
         assert_eq!(read_counter(&e, &DataKey::SplitCount), 3);
+    });
+}
+
+// Verifies bulk_distribute distributes multiple splits in a single atomic call
+// and marks them all as distributed with correct balances.
+#[test]
+fn test_bulk_distribute_distributes_all_splits() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 2000);
+        let recipients = make_recipients(&e, &[(r1.clone(), 10000)]);
+        let id1 = create_split(&e, sender.clone(), recipients.clone(), 1000);
+        let id2 = create_split(&e, sender.clone(), recipients, 1000);
+        let mut ids = soroban_sdk::Vec::new(&e);
+        ids.push_back(id1);
+        ids.push_back(id2);
+        crate::splitter::bulk_distribute(&e, sender.clone(), ids);
+        assert!(get_split(&e, id1).distributed);
+        assert!(get_split(&e, id2).distributed);
+        assert_eq!(read_balance(&e, r1.clone()), 2000);
+    });
+}
+
+// Ensures bulk_distribute rejects more than 10 split IDs per batch (BulkLimit).
+#[test]
+#[should_panic(expected = "BulkLimit")]
+fn test_bulk_distribute_rejects_more_than_ten_ids() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 11_000);
+        let mut ids = soroban_sdk::Vec::new(&e);
+        for _ in 0..11 {
+            let recs = make_recipients(&e, &[(r1.clone(), 10000)]);
+            ids.push_back(create_split(&e, sender.clone(), recs, 1000));
+        }
+        crate::splitter::bulk_distribute(&e, sender.clone(), ids);
+    });
+}
+
+// Verifies that create_split_with_escrow returns one distinct escrow ID per
+// recipient, and all IDs are unique.
+#[test]
+fn test_create_split_with_escrow_returns_one_id_per_recipient() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+    let r2 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 1000);
+        let recipients = make_recipients(&e, &[(r1.clone(), 5000), (r2.clone(), 5000)]);
+        let ids = crate::splitter::create_split_with_escrow(
+            &e, sender.clone(), recipients, 1000, 1000,
+        );
+        assert_eq!(ids.len(), 2);
+        // Both IDs must be distinct
+        assert_ne!(ids.get(0).unwrap(), ids.get(1).unwrap());
+    });
+}
+
+// Verifies that create_split_with_memo stores the memo on the split record
+// for off-chain correlation (e.g., order reference).
+#[test]
+fn test_create_split_with_memo_stores_memo() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 500);
+        let recipients = make_recipients(&e, &[(r1.clone(), 10000)]);
+        let memo = soroban_sdk::Bytes::from_slice(&e, b"order-ref-001");
+        let split_id = crate::splitter::create_split_with_memo(
+            &e,
+            sender.clone(),
+            recipients,
+            500,
+            memo.clone(),
+        );
+        let record = get_split(&e, split_id);
+        assert_eq!(record.memo, memo);
+    });
+}
+
+// Ensures that creating a split with recipient shares summing to exactly 10000 bps succeeds.
+#[test]
+fn test_create_split_total_bps_exactly_10000_ok() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+    let r2 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 1000);
+        let recipients = make_recipients(&e, &[(r1.clone(), 3000), (r2.clone(), 7000)]);
+        let split_id = create_split(&e, sender.clone(), recipients, 1000);
+        assert_eq!(split_id, 1);
+    });
+}
+
+// Ensures that creating a split with recipient shares summing to less than 10000 bps panics.
+#[test]
+#[should_panic(expected = "InvalidShares: recipient shares must sum to exactly 10000 bps")]
+fn test_create_split_total_bps_less_than_10000_panics() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+    let r2 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 1000);
+        let recipients = make_recipients(&e, &[(r1.clone(), 5000), (r2.clone(), 4000)]);
+        create_split(&e, sender.clone(), recipients, 1000);
+    });
+}
+
+// Ensures that creating a split with recipient shares summing to more than 10000 bps panics.
+#[test]
+#[should_panic(expected = "InvalidShares: recipient shares must sum to exactly 10000 bps")]
+fn test_create_split_total_bps_more_than_10000_panics() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+    let r2 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 1000);
+        let recipients = make_recipients(&e, &[(r1.clone(), 5000), (r2.clone(), 5001)]);
+        create_split(&e, sender.clone(), recipients, 1000);
     });
 }

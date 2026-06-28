@@ -1,69 +1,46 @@
-name: Veritix Pay CI
+name: CI
 
 on:
-  push:
-    branches: [ "main" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [main]
 
 jobs:
-  build-and-test:
-    name: Build, Test, and Format
+  contract-ci:
     runs-on: ubuntu-latest
-    
-    # Set the working directory for all run steps in this job
     defaults:
       run:
         working-directory: veritixpay/contract/token
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.84.0"
-          # wasm32-unknown-unknown is needed for `cargo test` and clippy.
-          # `stellar contract build` uses wasm32v1-none internally and manages
-          # that target itself; we do not need to install it here.
-          targets: wasm32-unknown-unknown
-          components: rustfmt, clippy
-
-      - name: Cache Cargo registry and build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: "veritixpay/contract/token -> target"
-
+          targets: wasm32-unknown-unknown,wasm32v1-none
       - name: Install Stellar CLI
-        run: cargo install --locked stellar-cli
-
-      - name: Check for orphaned source files
-        run: |
-          LIB=src/lib.rs
-          EXIT=0
-          for f in src/*.rs; do
-            mod=$(basename "$f" .rs)
-            [ "$mod" = "lib" ] && continue
-            if ! grep -qE "^\s*(pub\s+)?mod\s+${mod}\s*;" "$LIB"; then
-              echo "ORPHAN: $f is not declared in lib.rs"
-              EXIT=1
-            fi
-          done
-          exit $EXIT
-
-      - name: Check Formatting
-        # Uses cargo fmt directly, or make fmt if it passes the args in your Makefile
-        run: cargo fmt -- --check
-
-      - name: Run Clippy
-        run: cargo clippy --lib -- -D warnings
-
-      - name: Compile-only check (locked)
-        run: cargo check --locked
-
-      - name: Build Contract
+        run: cargo install stellar-cli --locked
+      - name: Preflight
+        run: make preflight
+      - name: Build
         run: make build
-
-      - name: Run Tests
+      - name: Check WASM size (max 100KB)
+        run: |
+          wasm_file=$(ls ../../target/wasm32v1-none/release/*.wasm | head -1)
+          size=$(stat -c%s "$wasm_file" 2>/dev/null || stat -f%z "$wasm_file" 2>/dev/null)
+          max_size=$((100 * 1024))
+          echo "WASM size: $size bytes"
+          if [ "$size" -gt "$max_size" ]; then
+            echo "❌ WASM size $size bytes exceeds 100KB limit"
+            exit 1
+          fi
+          echo "✅ WASM size OK ($size bytes)"
+      - name: Test
         run: make test
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --locked
+      - name: Coverage (min 80%)
+        run: |
+          cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+          cargo llvm-cov --all-features --workspace --fail-under-lines 80
+      - name: Clippy
+        run: cargo clippy --all -- -D warnings
+      - name: Rustfmt
+        run: cargo fmt --all --check

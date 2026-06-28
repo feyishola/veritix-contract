@@ -58,6 +58,32 @@ fn test_create_indexes_both_parties() {
 }
 
 #[test]
+fn test_escrowed_total_tracks_active_amounts() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    assert_eq!(t.client.escrowed_total(), 0);
+
+    let first = t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &1_000, &expiry, &empty_memo(&t.e),
+    );
+    assert_eq!(first, 0);
+    assert_eq!(t.client.escrowed_total(), 1_000);
+
+    let second = t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &500, &expiry, &empty_memo(&t.e),
+    );
+    assert_eq!(second, 1);
+    assert_eq!(t.client.escrowed_total(), 1_500);
+
+    t.client.release_escrow(&t.depositor, &first);
+    assert_eq!(t.client.escrowed_total(), 500);
+
+    t.client.refund_escrow(&t.depositor, &second);
+    assert_eq!(t.client.escrowed_total(), 0);
+}
+
+#[test]
 fn test_beneficiary_index_accumulates() {
     let t = setup();
     let expiry = t.e.ledger().sequence() + 1000;
@@ -76,6 +102,23 @@ fn test_stranger_gets_empty_list() {
     let t = setup();
     let stranger = Address::generate(&t.e);
     assert_eq!(t.client.get_escrows_by_beneficiary(&stranger).len(), 0);
+}
+
+#[test]
+fn test_ticket_escrow_helper_create_and_release() {
+    let t = setup();
+    let event_ledger = t.e.ledger().sequence() + 500;
+    let id = t.client.ticket_escrow(
+        &t.depositor,
+        &t.beneficiary,
+        &t.token,
+        &700,
+        &event_ledger,
+        &make_memo(&t.e, b"ticket-uuid-001"),
+    );
+    t.client.release_escrow(&t.beneficiary, &id);
+    let tc = soroban_sdk::token::Client::new(&t.e, &t.token);
+    assert_eq!(tc.balance(&t.beneficiary), 700);
 }
 
 // ── #175: Memo field ──────────────────────────────────────────────────────────
@@ -277,4 +320,162 @@ fn test_refund_after_partial_release_returns_remainder() {
     assert_eq!(tc.balance(&t.depositor), 49_600);
     assert_eq!(tc.balance(&t.beneficiary), 400);
     assert_eq!(tc.balance(&t.e.current_contract_address()), 0);
+}
+// ── #181: Escrow events with memo ─────────────────────────────────────────────
+
+#[test]
+fn test_create_escrow_event_includes_memo() {
+    let t = setup();
+    t.e.mock_all_auths();
+    let expiry = t.e.ledger().sequence() + 1000;
+    let memo = make_memo(&t.e, b"ticket:EVT-001:ORDER-9999");
+
+    let id = t.client.create_escrow(
+        &t.depositor,
+        &t.beneficiary,
+        &t.token,
+        &1_000,
+        &expiry,
+        &memo,
+    );
+
+    // Verify escrow was created successfully with memo
+    let list = t.client.get_escrows_by_depositor(&t.depositor);
+    assert_eq!(list.get(0).unwrap(), id);
+
+    // Verify events were emitted
+    let events = t.e.events().all();
+    assert!(!events.is_empty(), "escrow_created event should be emitted");
+}
+
+#[test]
+fn test_release_escrow_event_includes_memo() {
+    let t = setup();
+    t.e.mock_all_auths();
+    let expiry = t.e.ledger().sequence() + 1000;
+    let memo = make_memo(&t.e, b"ticket:EVT-002:ORDER-1234");
+
+    let id = t.client.create_escrow(
+        &t.depositor,
+        &t.beneficiary,
+        &t.token,
+        &1_000,
+        &expiry,
+        &memo,
+    );
+
+    t.client.release_escrow(&t.depositor, &id);
+
+    // Verify events were emitted including release event
+    let events = t.e.events().all();
+    assert!(events.len() >= 2, "escrow_created and escrow_released events should be emitted");
+}
+
+#[test]
+fn test_refund_escrow_event_includes_memo() {
+    let t = setup();
+    t.e.mock_all_auths();
+    let expiry = t.e.ledger().sequence() + 1000;
+    let memo = make_memo(&t.e, b"ticket:EVT-003:ORDER-5678");
+
+    let id = t.client.create_escrow(
+        &t.depositor,
+        &t.beneficiary,
+        &t.token,
+        &1_000,
+        &expiry,
+        &memo,
+    );
+
+    t.client.refund_escrow(&t.depositor, &id);
+
+    // Verify events were emitted including refund event
+    let events = t.e.events().all();
+    assert!(events.len() >= 2, "escrow_created and escrow_refunded events should be emitted");
+}
+
+#[test]
+fn test_create_escrow_event_with_empty_memo() {
+    let t = setup();
+    t.e.mock_all_auths();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    let id = t.client.create_escrow(
+        &t.depositor,
+        &t.beneficiary,
+        &t.token,
+        &500,
+        &expiry,
+        &empty_memo(&t.e),
+    );
+
+    // Even with empty memo event should be emitted
+    let events = t.e.events().all();
+    assert!(!events.is_empty(), "escrow_created event should be emitted even with empty memo");
+
+    let list = t.client.get_escrows_by_depositor(&t.depositor);
+    assert_eq!(list.get(0).unwrap(), id);
+}
+
+#[test]
+fn test_create_escrow_requires_depositor_auth() {
+    let env = Env::default();
+    
+    // Explicitly DO NOT call env.mock_all_auths() here.
+    // This ensures Soroban enforces cryptographic signatures strictly.
+
+    let depositor = Address::generate(&env);
+    let beneficiary = Address::generate(&env);
+    let token_addr = Address::generate(&env);
+    let memo = Bytes::new(&env);
+
+    // Attempting to invoke create_escrow should fail because the contract 
+    // demands a signature that we haven't provided.
+    let result = env.try_invoke_contract_with_address(
+        &depositor,
+        &|env| {
+            create_escrow(
+                env.clone(),
+                depositor.clone(),
+                beneficiary.clone(),
+                token_addr.clone(),
+                1000,
+                100,
+                memo.clone(),
+            )
+        }
+    );
+
+    // Assert that the call failed due to an authorization error
+    assert!(result.is_err(), "Expected transaction to fail due to missing depositor authentication.");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage_types::MAX_ESCROW_AMOUNT;
+    use soroban_sdk::{testutils::Address as _, Env, Bytes};
+
+    #[test]
+    #[should_panic(expected = "AmountTooLarge: use multi-party escrow for large amounts")]
+    fn test_create_escrow_rejects_exceeded_cap_amount() {
+        let env = Env::default();
+        let depositor = env.accounts().generate();
+        let beneficiary = env.accounts().generate();
+        let token = env.accounts().generate();
+        let memo = Bytes::new(&env);
+
+        // Supply an amount exactly 1 unit over the allowed global safety cap
+        let illegal_excessive_amount = MAX_ESCROW_AMOUNT + 1;
+
+        create_escrow(
+            env,
+            depositor,
+            beneficiary,
+            token,
+            illegal_excessive_amount,
+            12345,
+            memo,
+        );
+    }
 }

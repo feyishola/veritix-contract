@@ -148,3 +148,26 @@ fn test_three_party_split_platform_organiser_venue() {
     assert_eq!(tc.balance(&organiser), 850);
     assert_eq!(tc.balance(&venue), 100);
 }
+
+#[test]
+fn test_revenue_split_helper_distributes_immediately() {
+    let (e, client, depositor, organiser, venue, token) = setup();
+    let artist = Address::generate(&e);
+    let event_ledger = e.ledger().sequence() + 1000;
+    let split_id = client.revenue_split(
+        &depositor,
+        &organiser,
+        &8500,
+        &artist,
+        &1000,
+        &venue,
+        &token,
+        &1_000,
+        &event_ledger,
+    );
+    assert_eq!(split_id, 0);
+    let tc = soroban_sdk::token::Client::new(&e, &token);
+    assert_eq!(tc.balance(&organiser), 850);
+    assert_eq!(tc.balance(&artist), 100);
+    assert_eq!(tc.balance(&venue), 50);
+}
