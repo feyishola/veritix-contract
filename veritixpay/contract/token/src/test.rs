@@ -1034,3 +1034,38 @@ fn test_contract_stats_escrow_count_increments() {
     client.create_escrow(&user, &beneficiary, &500i128, &1_000u32);
     assert_eq!(client.contract_stats().escrow_count, 2);
 }
+
+// --- Issue #276: Clawback from contract address protection ---
+
+#[test]
+#[should_panic(expected = "InvalidClawback: cannot clawback from the contract address")]
+fn test_clawback_from_contract_address_panics() {
+    let (env, admin, _user) = setup();
+    env.mock_all_auths();
+    let (contract_id, client) = create_client_with_id(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &contract_id, &1000i128);
+
+    // Attempt to clawback from the contract address - should panic
+    client.clawback(&admin, &contract_id, &100i128);
+}
+
+#[test]
+#[should_panic(expected = "InvalidClawback: cannot clawback from the contract address")]
+fn test_clawback_batch_from_contract_address_panics() {
+    let (env, admin, _) = setup();
+    env.mock_all_auths();
+    let (contract_id, client) = create_client_with_id(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+
+    // Mint tokens to contract to have some balance
+    client.mint(&admin, &contract_id, &1000i128);
+
+    // Create batch with contract address as clawback target - should panic
+    let mut targets = soroban_sdk::Vec::new(&env);
+    targets.push_back((contract_id.clone(), 100i128));
+
+    client.clawback_batch(&admin, &targets);
+}

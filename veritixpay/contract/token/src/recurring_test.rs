@@ -523,4 +523,31 @@ mod recurring_tests {
         // Verify the payee contract received the tokens
         assert_eq!(payee_client.balance(&payee_contract_id), 500i128);
     }
+
+    // --- Issue #275: Cancel recurring preserves payer balance ---
+    // Since setup_recurring uses a "pull" model (funds not locked at setup),
+    // canceling a recurring payment does not require a refund - the payer's
+    // balance remains unchanged because funds were never transferred.
+
+    #[test]
+    fn test_cancel_recurring_preserves_payer_balance() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let (payer, _payee, id) = fund_and_setup(&e, &contract_id, 1_000, 100);
+
+        let balance_before = read_balance(&e, payer.clone());
+
+        e.as_contract(&contract_id, || {
+            cancel_recurring(&e, payer.clone(), id);
+        });
+
+        // Payer balance should be unchanged after cancellation
+        // (no funds were locked during setup - pull model)
+        let balance_after = read_balance(&e, payer.clone());
+        assert_eq!(balance_after, balance_before);
+
+        // Verify the record is no longer active
+        let record = get_recurring(&e, id);
+        assert!(!record.active);
+    }
 }
