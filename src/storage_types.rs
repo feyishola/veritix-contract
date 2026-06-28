@@ -21,6 +21,7 @@ pub enum DataKey {
     RecurringHistory(u32),
     ClaimantDisputes(Address),
     LastEscrowTime(Address),
+    Allowance(Address, Address),
 }
 
 #[contracttype]

@@ -517,4 +517,40 @@ mod lien_tests {
         assert_eq!(token_client.balance(&creditor), 300);
         assert_eq!(token_client.balance(&beneficiary), 700);
     }
+// ── Batch and Age Query tests ──────────────────────────────────────────────────
+
+#[test]
+fn test_get_escrows_batch() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    let id1 = t.client.create_escrow(&t.depositor, &t.beneficiary, &t.token, &100, &expiry, &empty_memo(&t.e));
+    let id2 = t.client.create_escrow(&t.depositor, &t.beneficiary, &t.token, &200, &expiry, &empty_memo(&t.e));
+
+    let ids = soroban_sdk::vec![&t.e, id1, id2, 999];
+    let batch = t.client.get_escrows_batch(&ids);
+
+    assert_eq!(batch.len(), 3);
+    assert!(batch.get(0).unwrap().is_some());
+    assert_eq!(batch.get(0).unwrap().unwrap().amount, 100);
+    assert!(batch.get(1).unwrap().is_some());
+    assert_eq!(batch.get(1).unwrap().unwrap().amount, 200);
+    assert!(batch.get(2).unwrap().is_none());
+}
+
+#[test]
+fn test_get_escrow_age() {
+    let t = setup();
+    let start_ledger = t.e.ledger().sequence();
+    let expiry = start_ledger + 1000;
+
+    let id = t.client.create_escrow(&t.depositor, &t.beneficiary, &t.token, &100, &expiry, &empty_memo(&t.e));
+
+    assert_eq!(t.client.get_escrow_age(&id), 0);
+
+    t.e.ledger().set_sequence_number(start_ledger + 5);
+    assert_eq!(t.client.get_escrow_age(&id), 5);
+
+    t.client.release_escrow(&t.beneficiary, &id);
+    assert_eq!(t.client.get_escrow_age(&id), 0);
 }

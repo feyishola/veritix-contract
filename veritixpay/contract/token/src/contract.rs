@@ -153,6 +153,9 @@ impl VeritixToken {
     }
     pub fn clawback(e: Env, admin: Address, from: Address, amount: i128) {
         check_admin(&e, &admin);
+        if from == e.current_contract_address() {
+            panic!("InvalidClawback: cannot clawback from the contract address");
+        }
         if let Some(cosigner) = read_clawback_cosigner(&e) {
             cosigner.require_auth();
         }

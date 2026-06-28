@@ -227,8 +227,6 @@ fn test_open_dispute_rejects_beneficiary_as_resolver() {
     });
 }
 
-// --- Issue #162: Event emission tests ---
-
 // Ensures that a stranger (neither depositor nor beneficiary) cannot open a
 // dispute — only escrow participants have standing.
 #[test]
@@ -242,6 +240,27 @@ fn test_open_dispute_stranger_as_claimant_panics() {
 
     e.as_contract(&contract_id, || {
         open_dispute(&e, stranger.clone(), escrow_id, resolver.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
+    });
+}
+
+// --- Issue #277: resolve_dispute requires resolver authorization ---
+
+#[test]
+#[should_panic(expected = "missing authorization")]
+fn test_resolve_dispute_without_auth_panics() {
+    let e = Env::default();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver = Address::generate(&e);
+    let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
+
+    e.as_contract(&contract_id, || {
+        // Create dispute with mocked auths
+        e.mock_all_auths();
+        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
+
+        // Clear all auths - resolver must authorize for resolve_dispute
+        e.set_auths(&[]);
+        resolve_dispute(&e, resolver.clone(), dispute_id, true);
     });
 }
 
