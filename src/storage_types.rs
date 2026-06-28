@@ -18,4 +18,16 @@ pub enum DataKey {
     BeneficiaryEscrows(Address),
     MultiEscrowCount,
     MultiEscrow(u32),
+    RecurringHistory(u32),
+    ClaimantDisputes(Address),
+    LastEscrowTime(Address),
 }
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct RecurringPayment {
+    pub recurring_id: u32,
+    pub execution_ledger: u32,
+    pub amount: i128,
+}
+

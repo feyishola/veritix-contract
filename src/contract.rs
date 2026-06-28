@@ -3,7 +3,8 @@ use crate::{escrow, multi_escrow};
 use crate::admin::validate_admin_address;
 use crate::storage_types::DataKey;
 use crate::validation::require_positive_amount; // Security audit import
-
+use crate::storage_types::RecurringPayment;
+use crate::{dispute, recurring};
 pub struct EscrowContract;
 
 #[contractimpl]
@@ -50,6 +51,14 @@ pub trait VeriTixPayTrait {
     fn get_escrows_by_depositor(e: Env, depositor: Address) -> Vec<u32>;
     fn get_escrows_by_beneficiary(e: Env, beneficiary: Address) -> Vec<u32>;
     fn escrowed_total(e: Env) -> i128;
+    fn place_lien(e: Env, creditor: Address, escrow_id: u32, lien_amount: i128);
+    fn clear_lien(e: Env, caller: Address, escrow_id: u32);
+
+    // ── Disputes ──────────────────────────────────────────────────────────────
+    fn get_disputes_by_claimant(e: Env, claimant: Address) -> Vec<u32>;
+
+    // ── Recurring Payments ────────────────────────────────────────────────────
+    fn get_recurring_history(e: Env, recurring_id: u32) -> Vec<RecurringPayment>;
 
     // ── Multi-escrow ──────────────────────────────────────────────────────────
     fn create_multi_escrow(
@@ -125,6 +134,22 @@ impl VeriTixPayTrait for VeriTixPay {
 
     fn escrowed_total(e: Env) -> i128 {
         escrow::get_escrowed_total(&e)
+    }
+
+    fn place_lien(e: Env, creditor: Address, escrow_id: u32, lien_amount: i128) {
+        escrow::place_lien(e, creditor, escrow_id, lien_amount)
+    }
+
+    fn clear_lien(e: Env, caller: Address, escrow_id: u32) {
+        escrow::clear_lien(e, caller, escrow_id)
+    }
+
+    fn get_disputes_by_claimant(e: Env, claimant: Address) -> Vec<u32> {
+        dispute::get_disputes_by_claimant(e, claimant)
+    }
+
+    fn get_recurring_history(e: Env, recurring_id: u32) -> Vec<RecurringPayment> {
+        recurring::get_recurring_history(e, recurring_id)
     }
 
     fn create_multi_escrow(
