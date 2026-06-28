@@ -322,3 +322,18 @@ pub fn get_escrow_age(e: Env, escrow_id: u32) -> u32 {
         e.ledger().sequence().saturating_sub(record.created_at_ledger)
     }
 }
+
+pub fn topup_escrow(e: Env, depositor: Address, escrow_id: u32, amount: i128) {
+    depositor.require_auth();
+    assert!(amount > 0, "amount must be positive");
+    if e.storage().persistent().has(&DataKey::EscrowDispute(escrow_id)) {
+        panic!("DisputeOpen: cannot top up an escrow under active dispute");
+    }
+    let mut record = load_record(&e, escrow_id);
+    assert!(!record.released && !record.refunded, "escrow already settled");
+    assert!(record.depositor == depositor, "not the depositor");
+    let token_client = token::Client::new(&e, &record.token);
+    token_client.transfer(&depositor, &e.current_contract_address(), &amount);
+    record.amount += amount;
+    save_record(&e, &record);
+}

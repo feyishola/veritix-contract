@@ -1069,3 +1069,40 @@ fn test_clawback_batch_from_contract_address_panics() {
 
     client.clawback_batch(&admin, &targets);
 }
+
+// --- Issue #440: Supply invariant tests ---
+
+#[test]
+fn test_supply_invariant_transfer() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let recipient = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1_000i128);
+
+    assert_supply_matches(&client, &[user.clone(), recipient.clone()]);
+
+    client.transfer(&user, &recipient, &400i128);
+
+    assert_supply_matches(&client, &[user.clone(), recipient.clone()]);
+}
+
+#[test]
+fn test_supply_invariant_escrow_create_release() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let beneficiary = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1_000i128);
+
+    let supply_before = client.total_supply();
+
+    let escrow_id = client.create_escrow(&user, &beneficiary, &500i128, &1_000u32);
+    client.release_escrow(&beneficiary, &escrow_id);
+
+    assert_eq!(client.total_supply(), supply_before);
+}
