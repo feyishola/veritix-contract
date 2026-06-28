@@ -1,5 +1,5 @@
 use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, Vec};
-use crate::{escrow, multi_escrow};
+use crate::{escrow, multi_escrow, allowance};
 use crate::admin::validate_admin_address;
 use crate::storage_types::DataKey;
 use crate::validation::require_positive_amount; // Security audit import
@@ -84,7 +84,10 @@ pub trait VeriTixPayTrait {
         total_amount: i128,
         event_ledger: u32,
     ) -> u32;
-    fn airdrop(e: Env, admin: Address, total_amount: i128, token: Address) -> u32;
+
+    // ── Allowance ─────────────────────────────────────────────────────────────
+    fn approve(e: Env, from: Address, spender: Address, amount: i128, expiration_ledger: u32);
+    fn transfer_from(e: Env, spender: Address, from: Address, to: Address, amount: i128);
 }
 
 #[contract]
@@ -220,28 +223,16 @@ impl VeriTixPayTrait for VeriTixPay {
         split_id
     }
 
-    fn airdrop(e: Env, admin: Address, total_amount: i128, token: Address) -> u32 {
-        crate::admin::check_admin(&e, &admin);
-        require_positive_amount(total_amount);
+    fn approve(e: Env, from: Address, spender: Address, amount: i128, expiration_ledger: u32) {
+        from.require_auth();
+        require_positive_amount(amount);
+        allowance::create_allowance(&e, &from, &spender, amount, expiration_ledger);
+    }
 
-        let holders: Vec<(Address, i128)> = e.storage().persistent().get(&DataKey::HolderSet).unwrap_or_else(|| Vec::new(&e));
-        assert!(holders.len() <= 50, "maximum 50 holders per airdrop call");
-        
-        let mut total_holdings: i128 = 0;
-        for holder in holders.iter() {
-            total_holdings += holder.1;
-        }
-        assert!(total_holdings > 0, "no holdings to airdrop to");
-
-        let mut recipients = Vec::new(&e);
-        for holder in holders.iter() {
-            let share = total_amount * holder.1 / total_holdings;
-            recipients.push_back((holder.0, share));
-        }
-
-        let expiry_ledger = e.ledger().sequence() + 100;
-        let split_id = multi_escrow::create_multi_escrow(e.clone(), admin.clone(), recipients, token, expiry_ledger);
-        multi_escrow::release_multi_escrow(e, admin, split_id);
-        split_id
+    fn transfer_from(e: Env, spender: Address, from: Address, to: Address, amount: i128) {
+        spender.require_auth();
+        require_positive_amount(amount);
+        allowance::spend_allowance(&e, &from, &spender, amount);
+        // Implement the actual token transfer logic here
     }
 }

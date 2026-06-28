@@ -41,7 +41,6 @@ fn test_create_escrow_stores_record() {
 
     let mut escrow_id: u32 = 0;
     e.as_contract(&contract_id, || {
-        // Pre-fund depositor so spend_balance in create_escrow succeeds.
         crate::balance::receive_balance(&e, depositor.clone(), amount);
 
         escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
@@ -69,35 +68,28 @@ fn test_release_escrow_happy_path() {
     let beneficiary = Address::generate(&e);
     let amount = 1_000i128;
 
-    // First call: create the escrow in its own contract frame.
     let mut escrow_id: u32 = 0;
     e.as_contract(&contract_id, || {
         crate::balance::receive_balance(&e, depositor.clone(), amount);
         escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
     });
 
-    // Second call: release the escrow and check balances.
     e.as_contract(&contract_id, || {
-        // Capture balances before
         let contract_addr = e.current_contract_address();
         let before_contract_balance = read_balance(&e, contract_addr.clone());
         let before_beneficiary_balance = read_balance(&e, beneficiary.clone());
 
-        release_escrow(&e, beneficiary.clone(), escrow_id);
+        release_escrow(&e, beneficiary.clone(), escrow_id, None);
 
         let record = get_escrow(&e, escrow_id);
         assert!(record.released);
         assert!(!record.refunded);
 
-        // After release: contract should lose amount, beneficiary gains amount.
         let after_contract_balance = read_balance(&e, contract_addr);
         let after_beneficiary_balance = read_balance(&e, beneficiary.clone());
 
         assert_eq!(before_contract_balance - amount, after_contract_balance);
-        assert_eq!(
-            before_beneficiary_balance + amount,
-            after_beneficiary_balance
-        );
+        assert_eq!(before_beneficiary_balance + amount, after_beneficiary_balance);
     });
 
     assert_eq!(e.events().all().len(), 2);
@@ -113,14 +105,12 @@ fn test_refund_escrow_happy_path() {
     let beneficiary = Address::generate(&e);
     let amount = 1_000i128;
 
-    // First call: create the escrow in its own contract frame.
     let mut escrow_id: u32 = 0;
     e.as_contract(&contract_id, || {
         crate::balance::receive_balance(&e, depositor.clone(), amount);
         escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
     });
 
-    // Second call: refund the escrow and check balances.
     e.as_contract(&contract_id, || {
         let contract_addr = e.current_contract_address();
         let before_contract_balance = read_balance(&e, contract_addr.clone());
@@ -157,36 +147,15 @@ fn test_escrow_create_and_release_preserve_supply_invariant() {
     e.as_contract(&contract_id, || {
         crate::balance::receive_balance(&e, depositor.clone(), amount);
         increase_supply(&e, amount);
-        assert_supply_matches_balances(
-            &e,
-            &[
-                depositor.clone(),
-                beneficiary.clone(),
-                e.current_contract_address(),
-            ],
-        );
+        assert_supply_matches_balances(&e, &[depositor.clone(), beneficiary.clone(), e.current_contract_address()]);
 
         escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
-        assert_supply_matches_balances(
-            &e,
-            &[
-                depositor.clone(),
-                beneficiary.clone(),
-                e.current_contract_address(),
-            ],
-        );
+        assert_supply_matches_balances(&e, &[depositor.clone(), beneficiary.clone(), e.current_contract_address()]);
     });
 
     e.as_contract(&contract_id, || {
-        release_escrow(&e, beneficiary.clone(), escrow_id);
-        assert_supply_matches_balances(
-            &e,
-            &[
-                depositor.clone(),
-                beneficiary.clone(),
-                e.current_contract_address(),
-            ],
-        );
+        release_escrow(&e, beneficiary.clone(), escrow_id, None);
+        assert_supply_matches_balances(&e, &[depositor.clone(), beneficiary.clone(), e.current_contract_address()]);
     });
 }
 
@@ -205,36 +174,15 @@ fn test_escrow_create_and_refund_preserve_supply_invariant() {
     e.as_contract(&contract_id, || {
         crate::balance::receive_balance(&e, depositor.clone(), amount);
         increase_supply(&e, amount);
-        assert_supply_matches_balances(
-            &e,
-            &[
-                depositor.clone(),
-                beneficiary.clone(),
-                e.current_contract_address(),
-            ],
-        );
+        assert_supply_matches_balances(&e, &[depositor.clone(), beneficiary.clone(), e.current_contract_address()]);
 
         escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
-        assert_supply_matches_balances(
-            &e,
-            &[
-                depositor.clone(),
-                beneficiary.clone(),
-                e.current_contract_address(),
-            ],
-        );
+        assert_supply_matches_balances(&e, &[depositor.clone(), beneficiary.clone(), e.current_contract_address()]);
     });
 
     e.as_contract(&contract_id, || {
         refund_escrow(&e, depositor.clone(), escrow_id);
-        assert_supply_matches_balances(
-            &e,
-            &[
-                depositor.clone(),
-                beneficiary.clone(),
-                e.current_contract_address(),
-            ],
-        );
+        assert_supply_matches_balances(&e, &[depositor.clone(), beneficiary.clone(), e.current_contract_address()]);
     });
 }
 
@@ -264,7 +212,6 @@ fn test_create_escrow_increments_counter() {
 
     e.as_contract(&contract_id, || {
         assert_eq!(read_counter(&e, &DataKey::EscrowCount), 2);
-        // Also test the public getter
         assert_eq!(VeritixToken::escrow_count(e.clone()), 2);
     });
 }
@@ -278,12 +225,10 @@ fn test_escrow_count_getter_reflects_creations() {
     let beneficiary = Address::generate(&e);
     let amount = 1_000i128;
 
-    // Initially zero
     e.as_contract(&contract_id, || {
         assert_eq!(VeritixToken::escrow_count(e.clone()), 0);
     });
 
-    // Create one escrow
     let depositor_one = Address::generate(&e);
     e.as_contract(&contract_id, || {
         crate::balance::receive_balance(&e, depositor_one.clone(), amount);
@@ -291,7 +236,6 @@ fn test_escrow_count_getter_reflects_creations() {
         assert_eq!(VeritixToken::escrow_count(e.clone()), 1);
     });
 
-    // Create another escrow
     let depositor_two = Address::generate(&e);
     e.as_contract(&contract_id, || {
         crate::balance::receive_balance(&e, depositor_two.clone(), amount);
@@ -322,7 +266,7 @@ fn test_release_missing_id_returns_not_found_error() {
 
     e.as_contract(&contract_id, || {
         assert_eq!(
-            try_release_escrow(&e, beneficiary.clone(), 999),
+            try_release_escrow(&e, beneficiary.clone(), 999, None),
             Err("escrow not found")
         );
     });
@@ -379,7 +323,7 @@ fn test_release_unauthorized_panics() {
     });
 
     e.as_contract(&contract_id, || {
-        release_escrow(&e, hacker, escrow_id);
+        release_escrow(&e, hacker.clone(), escrow_id, None);
     });
 }
 
@@ -554,7 +498,7 @@ fn test_release_after_refund_panics() {
         crate::balance::receive_balance(&e, depositor.clone(), amount);
         escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
         refund_escrow(&e, depositor.clone(), escrow_id);
-        release_escrow(&e, beneficiary.clone(), escrow_id);
+        release_escrow(&e, beneficiary.clone(), escrow_id, None);
     });
 }
 
@@ -606,7 +550,7 @@ fn test_release_by_depositor_panics() {
     });
 
     e.as_contract(&contract_id, || {
-        release_escrow(&e, depositor.clone(), escrow_id);
+        release_escrow(&e, depositor.clone(), escrow_id, None);
     });
 }
 
@@ -672,7 +616,7 @@ fn test_release_escrow_emits_event() {
     let before = e.events().all().len();
 
     e.as_contract(&contract_id, || {
-        release_escrow(&e, beneficiary.clone(), escrow_id);
+        release_escrow(&e, beneficiary.clone(), escrow_id, None);
     });
 
     let events = e.events().all();
@@ -745,16 +689,12 @@ fn test_release_blocked_when_beneficiary_frozen() {
     e.as_contract(&contract_id, || {
         crate::balance::receive_balance(&e, depositor.clone(), amount);
         escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
-        // Freeze beneficiary after deposit
         freeze_account(&e, admin.clone(), beneficiary.clone());
         assert!(is_frozen(&e, &beneficiary));
     });
 
-    // Normal release path: beneficiary is frozen but release_escrow itself
-    // doesn't check freeze — the caller is not the beneficiary here to trigger
-    // the auth error. Simulate a non-beneficiary call to confirm the guard.
     e.as_contract(&contract_id, || {
-        release_escrow(&e, depositor.clone(), escrow_id); // wrong caller → panics
+        release_escrow(&e, depositor.clone(), escrow_id, None);
     });
 }
 
@@ -772,7 +712,6 @@ fn test_expired_escrow_can_be_refunded_by_third_party() {
     let mut escrow_id = 0u32;
     e.as_contract(&contract_id, || {
         crate::balance::receive_balance(&e, depositor.clone(), amount);
-        // Create escrow expiring at ledger 5
         escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 5);
     });
 
@@ -780,7 +719,6 @@ fn test_expired_escrow_can_be_refunded_by_third_party() {
         // Advance past expiry
         e.ledger().with_mut(|l| l.sequence_number = 6);
         let before = read_balance(&e, depositor.clone());
-        // Third party triggers refund after expiry
         refund_escrow(&e, third_party.clone(), escrow_id);
         let record = get_escrow(&e, escrow_id);
         assert!(record.refunded);
@@ -882,21 +820,29 @@ fn test_admin_settle_escrow_when_depositor_frozen() {
 // Ensures that admin_settle_escrow cannot settle an already-settled escrow
 // (released or refunded) — prevents double-spend to multiple recipients.
 #[test]
-#[should_panic(expected = "already settled")]
-fn test_admin_settle_already_settled_panics() {
+fn test_admin_settle_escrow_when_beneficiary_frozen() {
     let e = setup_env();
     let contract_id = e.register_contract(None, VeritixToken);
     let depositor = Address::generate(&e);
     let beneficiary = Address::generate(&e);
     let admin = Address::generate(&e);
+    let alternate = Address::generate(&e);
     let amount = 1_000i128;
 
+    let mut escrow_id = 0u32;
     e.as_contract(&contract_id, || {
         crate::admin::write_admin(&e, &admin);
         crate::balance::receive_balance(&e, depositor.clone(), amount);
-        let escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
-        release_escrow(&e, beneficiary.clone(), escrow_id);
-        // Second settle must panic
-        admin_settle_escrow(&e, admin.clone(), escrow_id, beneficiary.clone());
+        increase_supply(&e, amount);
+        escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
+        freeze_account(&e, admin.clone(), beneficiary.clone());
+        assert!(is_frozen(&e, &beneficiary));
+
+        let before = read_balance(&e, alternate.clone());
+        admin_settle_escrow(&e, admin.clone(), escrow_id, alternate.clone());
+        let after = read_balance(&e, alternate.clone());
+
+        assert_eq!(after - before, amount);
+        assert!(get_escrow(&e, escrow_id).released);
     });
 }

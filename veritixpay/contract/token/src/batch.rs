@@ -21,6 +21,9 @@ pub fn clawback_batch(e: &Env, admin: Address, targets: Vec<(Address, i128)>) {
     }
     for i in 0..targets.len() {
         let (from, amount) = targets.get(i).unwrap();
+        if *from == e.current_contract_address() {
+            panic!("InvalidClawback: cannot clawback from the contract address");
+        }
         require_positive_amount(amount);
         spend_balance(e, from.clone(), amount);
         decrease_supply(e, amount);

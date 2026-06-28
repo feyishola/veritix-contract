@@ -110,12 +110,12 @@ pub fn open_dispute(e: &Env, claimant: Address, escrow_id: u32, resolver: Addres
 }
 
 pub fn resolve_dispute(e: &Env, resolver: Address, dispute_id: u32, release_to_beneficiary: bool) {
+    resolver.require_auth();
     let dispute_key = DataKey::Dispute(dispute_id);
     let mut dispute: DisputeRecord = e.storage().persistent().get(&dispute_key).expect("Dispute not found");
     bump_dispute(e, &dispute_key);
     if dispute.status != DisputeStatus::Open { panic!("AlreadyResolved: This dispute has already been resolved"); }
     if dispute.resolver != resolver { panic!("UnauthorizedResolver: Only the designated resolver can resolve this"); }
-    resolver.require_auth();
     settle_escrow_by_outcome(e, dispute.escrow_id, release_to_beneficiary);
     dispute.status = if release_to_beneficiary { DisputeStatus::ResolvedForBeneficiary } else { DisputeStatus::ResolvedForDepositor };
     e.storage().persistent().set(&dispute_key, &dispute);
@@ -144,12 +144,12 @@ pub fn expire_dispute(e: &Env, dispute_id: u32) {
 }
 
 pub fn resolve_dispute_with_note(e: &Env, resolver: Address, dispute_id: u32, release_to_beneficiary: bool, note: Bytes) {
+    resolver.require_auth();
     let dispute_key = DataKey::Dispute(dispute_id);
     let mut dispute: DisputeRecord = e.storage().persistent().get(&dispute_key).expect("Dispute not found");
     bump_dispute(e, &dispute_key);
     if dispute.status != DisputeStatus::Open { panic!("AlreadyResolved: This dispute has already been resolved"); }
     if dispute.resolver != resolver { panic!("UnauthorizedResolver: Only the designated resolver can resolve this"); }
-    resolver.require_auth();
     settle_escrow_by_outcome(e, dispute.escrow_id, release_to_beneficiary);
     dispute.status = if release_to_beneficiary { DisputeStatus::ResolvedForBeneficiary } else { DisputeStatus::ResolvedForDepositor };
     dispute.resolution_note = note;

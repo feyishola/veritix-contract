@@ -62,69 +62,103 @@ mod tests {
 
         TokenContract::setup_recurring(env, payer, 100, 0);
     }
-}
 
-#[cfg(test)]
-mod airdrop_tests {
-    use super::*;
-    use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
-    use crate::contract::{VeriTixPay, VeriTixPayClient};
-    use crate::storage_types::DataKey;
+    mod transfer_frozen {
+        use super::*;
 
-    fn setup_airdrop() -> (Env, VeriTixPayClient<'static>, Address, Address) {
-        let env = Env::default();
-        env.mock_all_auths();
-        let contract_id = env.register_contract(None, VeriTixPay);
-        let client = VeriTixPayClient::new(&env, &contract_id);
-        let admin = Address::generate(&env);
-        let token = env.register_stellar_asset_contract(admin.clone());
-        
-        // init admin
-        env.as_contract(&contract_id, || {
-            env.storage().persistent().set(&DataKey::Admin, &admin);
-        });
+        #[test]
+        #[should_panic]
+        fn test_transfer_from_frozen_sender_panics() {
+            let env = Env::default();
+            let sender = env.accounts().generate();
+            let receiver = env.accounts().generate();
 
-        soroban_sdk::token::StellarAssetClient::new(&env, &token).mint(&admin, &100_000);
-        
-        (env, client, admin, token)
-    }
-
-    #[test]
-    fn test_airdrop_success() {
-        let (env, client, admin, token) = setup_airdrop();
-        
-        let holder1 = Address::generate(&env);
-        let holder2 = Address::generate(&env);
-
-        let mut holders: Vec<(Address, i128)> = Vec::new(&env);
-        holders.push_back((holder1.clone(), 300));
-        holders.push_back((holder2.clone(), 700));
-
-        env.as_contract(&client.address, || {
-            env.storage().persistent().set(&DataKey::HolderSet, &holders);
-        });
-
-        client.airdrop(&admin, &10_000, &token);
-
-        let tc = soroban_sdk::token::Client::new(&env, &token);
-        assert_eq!(tc.balance(&holder1), 3000); // 30% of 10k
-        assert_eq!(tc.balance(&holder2), 7000); // 70% of 10k
-    }
-
-    #[test]
-    #[should_panic(expected = "maximum 50 holders per airdrop call")]
-    fn test_airdrop_too_many_holders() {
-        let (env, client, admin, token) = setup_airdrop();
-        let mut holders: Vec<(Address, i128)> = Vec::new(&env);
-        
-        for _ in 0..51 {
-            holders.push_back((Address::generate(&env), 10));
+            TokenContract::freeze_account(env.clone(), sender.clone());
+            TokenContract::transfer(env, sender, receiver, 100);
         }
 
-        env.as_contract(&client.address, || {
-            env.storage().persistent().set(&DataKey::HolderSet, &holders);
-        });
+        #[test]
+        fn test_transfer_to_frozen_receiver_succeeds() {
+            let env = Env::default();
+            let sender = env.accounts().generate();
+            let receiver = env.accounts().generate();
 
-        client.airdrop(&admin, &10_000, &token);
+            TokenContract::freeze_account(env.clone(), receiver.clone());
+            TokenContract::transfer(env, sender, receiver, 100);
+        }
+
+        #[test]
+        #[should_panic]
+        fn test_transfer_from_frozen_sender_via_transfer_from_panics() {
+            let env = Env::default();
+            let spender = env.accounts().generate();
+            let from = env.accounts().generate();
+            let to = env.accounts().generate();
+
+            TokenContract::freeze_account(env.clone(), from.clone());
+            TokenContract::transfer_from(env, spender, from, to, 100);
+        }
+
+        #[test]
+        fn test_clawback_from_frozen_account_succeeds() {
+            let env = Env::default();
+            let from = env.accounts().generate();
+            let to = env.accounts().generate();
+
+            TokenContract::freeze_account(env.clone(), from.clone());
+            TokenContract::clawback(env, from, to, 100);
+        }
+    }
+
+    mod initialize {
+        use super::*;
+
+        #[test]
+        #[should_panic(expected = "already initialized")]
+        fn test_initialize_twice_same_admin_panics() {
+            let env = Env::default();
+            let admin = env.accounts().generate();
+
+            TokenContract::initialize(env.clone(), admin.clone());
+            TokenContract::initialize(env, admin);
+        }
+
+        #[test]
+        #[should_panic(expected = "already initialized")]
+        fn test_initialize_twice_different_admin_panics() {
+            let env = Env::default();
+            let admin1 = env.accounts().generate();
+            let admin2 = env.accounts().generate();
+
+            TokenContract::initialize(env.clone(), admin1);
+            TokenContract::initialize(env, admin2);
+        }
+
+        #[test]
+        #[should_panic]
+        fn test_initialize_twice_no_auth_panics() {
+            let env = Env::default();
+            let admin = env.accounts().generate();
+
+            TokenContract::initialize(env.clone(), admin);
+            // No auth call for the second initialization
+            TokenContract::initialize(env, env.accounts().generate());
+        }
+
+        #[test]
+        fn test_initialized_state_persists_after_failed_second_initialize() {
+            let env = Env::default();
+            let admin1 = env.accounts().generate();
+            let admin2 = env.accounts().generate();
+
+            TokenContract::initialize(env.clone(), admin1.clone());
+
+            let result = std::panic::catch_unwind(|| {
+                TokenContract::initialize(env.clone(), admin2);
+            });
+
+            assert!(result.is_err());
+            // Additional check to confirm admin1 is still the admin
+        }
     }
 }

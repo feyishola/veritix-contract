@@ -254,4 +254,69 @@ mod admin_test {
         assert_eq!(client.balance(&a), 400i128);
         assert_eq!(client.balance(&b), 300i128);
     }
+
+    // --- Issue #287: Old admin cannot act after rotation ---
+
+    #[test]
+    #[should_panic(expected = "not authorized: caller is not the admin")]
+    fn test_old_admin_cannot_mint_after_rotation() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, VeritixToken);
+        let admin_a = Address::generate(&env);
+        let admin_b = Address::generate(&env);
+        let user = Address::generate(&env);
+
+        env.as_contract(&contract_id, || {
+            write_admin(&env, &admin_a);
+        });
+
+        env.mock_all_auths();
+        let client = VeritixTokenClient::new(&env, &contract_id);
+
+        // Transfer admin from admin_a to admin_b
+        client.set_admin(&admin_b);
+
+        // Clear auths and try minting as admin_a (old admin) - should panic
+        env.set_auths(&[]);
+        client.mint(&admin_a, &user, &100i128);
+    }
+
+    #[test]
+    #[should_panic(expected = "not authorized: caller is not the admin")]
+    fn test_old_admin_cannot_freeze_after_rotation() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, VeritixToken);
+        let admin_a = Address::generate(&env);
+        let admin_b = Address::generate(&env);
+        let user = Address::generate(&env);
+
+        env.as_contract(&contract_id, || {
+            write_admin(&env, &admin_a);
+        });
+
+        env.mock_all_auths();
+        let client = VeritixTokenClient::new(&env, &contract_id);
+
+        // Transfer admin from admin_a to admin_b
+        client.set_admin(&admin_b);
+
+        // Clear auths and try freezing as admin_a (old admin) - should panic
+        env.set_auths(&[]);
+        client.freeze(&user);
+    }
+
+    #[test]
+    fn test_new_admin_can_mint_after_rotation() {
+        let env = setup_env();
+        let (admin_a, client) = create_initialized_client(&env);
+        let admin_b = Address::generate(&env);
+        let user = Address::generate(&env);
+
+        // Transfer admin from admin_a to admin_b
+        client.set_admin(&admin_b);
+
+        // admin_b should be able to mint successfully
+        client.mint(&admin_b, &user, &100i128);
+        assert_eq!(client.balance(&user), 100i128);
+    }
 }
