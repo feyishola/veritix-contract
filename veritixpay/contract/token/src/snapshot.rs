@@ -1,6 +1,6 @@
 use crate::admin::check_admin;
 use crate::balance::read_balance;
-use crate::storage_types::{bump_instance, increment_counter, DataKey, PERSISTENT_BUMP_AMOUNT, PERSISTENT_LIFETIME_THRESHOLD};
+use crate::storage_types::{increment_counter, DataKey, PERSISTENT_BUMP_AMOUNT, PERSISTENT_LIFETIME_THRESHOLD};
 use soroban_sdk::{contracttype, Address, Env, Vec};
 
 #[contracttype]

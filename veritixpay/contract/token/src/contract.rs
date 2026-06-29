@@ -1,10 +1,8 @@
 use crate::admin::{check_admin, has_admin, read_admin, read_clawback_cosigner, read_pending_admin, transfer_admin, write_admin, write_clawback_cosigner};
 use crate::allowance::{get_allowances_for_spender, read_allowance, revoke_all_allowances, spend_allowance, validate_allowance, write_allowance};
-use crate::balance::{decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance, spend_balance};
-use crate::batch::{approve_batch, clawback_batch, freeze_batch, transfer_batch_with_memo, unfreeze_batch};
-use crate::allowance::{get_allowances_for_spender, read_allowance, spend_allowance, validate_allowance, write_allowance};
-use crate::balance::{decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance, spend_balance};
-use crate::batch::{burn_from_batch, clawback_batch, freeze_batch, unfreeze_batch};
+use crate::balance::{decrease_supply, increase_supply, read_balance, read_max_supply, read_total_supply, receive_balance, spend_balance};
+use crate::batch::{approve_batch, burn_from_batch, clawback_batch, freeze_batch, transfer_batch_with_memo, unfreeze_batch};
+use crate::storage_types::DataKey;
 use crate::dispute::{
     expire_dispute, get_dispute as dispute_get, get_dispute_history_for_escrow,
     get_open_disputes, open_dispute, resolve_dispute, DisputeRecord,
@@ -24,10 +22,10 @@ use crate::recurring::{
 };
 use crate::splitter::{
     cancel_split as split_cancel, create_split as split_create, distribute as split_distribute,
-    get_split as split_get, replace_split_recipient, SplitRecord, SplitRecipient,
+    get_split as split_get, SplitRecord, SplitRecipient,
 };
 use crate::validation::{require_not_frozen_account, require_positive_amount};
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Bytes, Env, String, Vec};
 
 #[contract]
 pub struct VeritixToken;
@@ -71,7 +69,7 @@ impl VeritixToken {
         write_admin(&e, &admin);
         e.storage().instance().set(&DataKey::MaxSupply, &0i128);
         e.events().publish(
-            (symbol_short!("initialized"), admin),
+            (symbol_short!("init_done"), admin),
             (name, symbol, decimal),
         );
     }
@@ -175,6 +173,9 @@ impl VeritixToken {
         burn_from_batch(&e, spender, targets);
     }
     pub fn transfer(e: Env, from: Address, to: Address, amount: i128) {
+        if to == e.current_contract_address() {
+            panic!("InvalidRecipient: cannot transfer directly to the contract address — use create_escrow instead");
+        }
         from.require_auth();
         require_not_paused(&e);
         require_not_frozen_account(&e, &from);
