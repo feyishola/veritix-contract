@@ -1,11 +1,14 @@
 #![no_std]
 
 mod admin;
+mod allowance;
+mod balance;
 mod contract;
 mod escrow;
 mod escrow_test;
-mod multi_escrow;       // NEW — #176
-mod multi_escrow_test;  // NEW — #176
+mod freeze;
+mod multi_escrow;
+mod multi_escrow_test;
 mod batch_test;
 mod storage_types;
 mod recurring;

@@ -8,13 +8,18 @@ pub struct Allowance {
     pub expiration_ledger: u32,
 }
 
-pub fn create_allowance(e: &Env, from: &Address, spender: &Address, amount: i128, expiration_ledger: u32) {
+pub fn write_allowance(e: &Env, from: &Address, spender: &Address, amount: i128, expiration_ledger: u32) {
     let key = DataKey::Allowance(from.clone(), spender.clone());
-    let allowance = Allowance {
-        amount,
-        expiration_ledger,
-    };
-    e.storage().persistent().set(&key, &allowance);
+    if amount == 0 {
+        e.storage().persistent().remove(&key);
+    } else {
+        let allowance = Allowance { amount, expiration_ledger };
+        e.storage().persistent().set(&key, &allowance);
+    }
+}
+
+pub fn create_allowance(e: &Env, from: &Address, spender: &Address, amount: i128, expiration_ledger: u32) {
+    write_allowance(e, from, spender, amount, expiration_ledger);
 }
 
 pub fn read_allowance(e: &Env, from: &Address, spender: &Address) -> Allowance {
@@ -33,10 +38,6 @@ pub fn spend_allowance(e: &Env, from: &Address, spender: &Address, amount: i128)
     if allowance.amount < amount {
         panic!("insufficient allowance");
     }
-    let key = DataKey::Allowance(from.clone(), spender.clone());
-    let new_allowance = Allowance {
-        amount: allowance.amount - amount,
-        expiration_ledger: allowance.expiration_ledger,
-    };
-    e.storage().persistent().set(&key, &new_allowance);
+    let new_amount = allowance.amount - amount;
+    write_allowance(e, from, spender, new_amount, allowance.expiration_ledger);
 }
