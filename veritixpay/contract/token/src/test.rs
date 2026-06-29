@@ -1,5 +1,5 @@
 use super::*;
-use soroban_sdk::{testutils::Address as _, testutils::Events as _, testutils::Ledger as _, Address, Env, String};
+use soroban_sdk::{testutils::Address as _, testutils::Events as _, testutils::Ledger as _, Address, Env, String, Symbol, TryFromVal};
 
 use crate::contract::VeritixTokenClient;
 
@@ -1105,4 +1105,179 @@ fn test_supply_invariant_escrow_create_release() {
     client.release_escrow(&beneficiary, &escrow_id);
 
     assert_eq!(client.total_supply(), supply_before);
+}
+
+// --- Issue: emission-tests — verify event topics and data values ---
+
+// initialize emits ("initialized", admin) topics and (name, symbol, decimal) data.
+#[test]
+fn test_initialize_event_topics_and_data() {
+    let (env, admin, _user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let name = String::from_str(&env, "Veritix");
+    let sym = String::from_str(&env, "VTX");
+    let decimal = 7u32;
+
+    client.initialize(&admin, &name, &sym, &decimal);
+
+    let events = env.events().all();
+    assert_eq!(events.len(), 1);
+    let event = events.last().unwrap();
+    let topics = event.1;
+    assert_eq!(topics.len(), 2);
+    let topic0 = Symbol::try_from_val(&env, &topics.get(0).unwrap()).unwrap();
+    assert_eq!(topic0, soroban_sdk::symbol_short!("initialized"));
+    let topic1 = Address::try_from_val(&env, &topics.get(1).unwrap()).unwrap();
+    assert_eq!(topic1, admin);
+    let (data_name, data_sym, data_dec): (String, String, u32) =
+        soroban_sdk::Vec::<soroban_sdk::Val>::try_from_val(&env, &event.2)
+            .map(|v| (
+                String::try_from_val(&env, &v.get(0).unwrap()).unwrap(),
+                String::try_from_val(&env, &v.get(1).unwrap()).unwrap(),
+                u32::try_from_val(&env, &v.get(2).unwrap()).unwrap(),
+            ))
+            .unwrap();
+    assert_eq!(data_name, name);
+    assert_eq!(data_sym, sym);
+    assert_eq!(data_dec, decimal);
+}
+
+// mint emits ("mint", admin) topics and (to, amount) as data.
+#[test]
+fn test_mint_event_topics_and_data() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    initialize_client(&client, &env, &admin, 7);
+    let before = env.events().all().len();
+
+    client.mint(&admin, &user, &1000i128);
+
+    let events = env.events().all();
+    assert_eq!(events.len(), before + 1);
+    let event = events.last().unwrap();
+    let topics = event.1;
+    assert_eq!(topics.len(), 2);
+    let topic0 = Symbol::try_from_val(&env, &topics.get(0).unwrap()).unwrap();
+    assert_eq!(topic0, soroban_sdk::symbol_short!("mint"));
+    let topic1 = Address::try_from_val(&env, &topics.get(1).unwrap()).unwrap();
+    assert_eq!(topic1, admin);
+    let data_vec = soroban_sdk::Vec::<soroban_sdk::Val>::try_from_val(&env, &event.2).unwrap();
+    let data_to = Address::try_from_val(&env, &data_vec.get(0).unwrap()).unwrap();
+    let data_amount = i128::try_from_val(&env, &data_vec.get(1).unwrap()).unwrap();
+    assert_eq!(data_to, user);
+    assert_eq!(data_amount, 1000i128);
+}
+
+// burn emits ("burn", from) topic and amount as data (not a tuple).
+#[test]
+fn test_burn_event_topics_and_data() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1000i128);
+    let before = env.events().all().len();
+
+    client.burn(&user, &400i128);
+
+    let events = env.events().all();
+    assert_eq!(events.len(), before + 1);
+    let event = events.last().unwrap();
+    let topics = event.1;
+    assert_eq!(topics.len(), 2);
+    let topic0 = Symbol::try_from_val(&env, &topics.get(0).unwrap()).unwrap();
+    assert_eq!(topic0, soroban_sdk::symbol_short!("burn"));
+    let topic1 = Address::try_from_val(&env, &topics.get(1).unwrap()).unwrap();
+    assert_eq!(topic1, user);
+    let data_amount = i128::try_from_val(&env, &event.2).unwrap();
+    assert_eq!(data_amount, 400i128);
+}
+
+// transfer emits ("transfer", from) topics and (to, amount) as data.
+#[test]
+fn test_transfer_event_topics_and_data() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let receiver = Address::generate(&env);
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1000i128);
+    let before = env.events().all().len();
+
+    client.transfer(&user, &receiver, &300i128);
+
+    let events = env.events().all();
+    assert_eq!(events.len(), before + 1);
+    let event = events.last().unwrap();
+    let topics = event.1;
+    assert_eq!(topics.len(), 2);
+    let topic0 = Symbol::try_from_val(&env, &topics.get(0).unwrap()).unwrap();
+    assert_eq!(topic0, soroban_sdk::symbol_short!("transfer"));
+    let topic1 = Address::try_from_val(&env, &topics.get(1).unwrap()).unwrap();
+    assert_eq!(topic1, user);
+    let data_vec = soroban_sdk::Vec::<soroban_sdk::Val>::try_from_val(&env, &event.2).unwrap();
+    let data_to = Address::try_from_val(&env, &data_vec.get(0).unwrap()).unwrap();
+    let data_amount = i128::try_from_val(&env, &data_vec.get(1).unwrap()).unwrap();
+    assert_eq!(data_to, receiver);
+    assert_eq!(data_amount, 300i128);
+}
+
+// approve emits ("approve", from) topics and (spender, amount) as data.
+// expiration_ledger is NOT included in the event data.
+#[test]
+fn test_approve_event_topics_and_data() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let spender = Address::generate(&env);
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1000i128);
+    let before = env.events().all().len();
+
+    client.approve(&user, &spender, &500i128, &1000u32);
+
+    let events = env.events().all();
+    assert_eq!(events.len(), before + 1);
+    let event = events.last().unwrap();
+    let topics = event.1;
+    assert_eq!(topics.len(), 2);
+    let topic0 = Symbol::try_from_val(&env, &topics.get(0).unwrap()).unwrap();
+    assert_eq!(topic0, soroban_sdk::symbol_short!("approve"));
+    let topic1 = Address::try_from_val(&env, &topics.get(1).unwrap()).unwrap();
+    assert_eq!(topic1, user);
+    let data_vec = soroban_sdk::Vec::<soroban_sdk::Val>::try_from_val(&env, &event.2).unwrap();
+    let data_spender = Address::try_from_val(&env, &data_vec.get(0).unwrap()).unwrap();
+    let data_amount = i128::try_from_val(&env, &data_vec.get(1).unwrap()).unwrap();
+    assert_eq!(data_spender, spender);
+    assert_eq!(data_amount, 500i128);
+}
+
+// clawback emits ("clawback", admin) topics and (from, amount) as data.
+#[test]
+fn test_clawback_event_topics_and_data() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1000i128);
+    let before = env.events().all().len();
+
+    client.clawback(&admin, &user, &200i128);
+
+    let events = env.events().all();
+    assert_eq!(events.len(), before + 1);
+    let event = events.last().unwrap();
+    let topics = event.1;
+    assert_eq!(topics.len(), 2);
+    let topic0 = Symbol::try_from_val(&env, &topics.get(0).unwrap()).unwrap();
+    assert_eq!(topic0, soroban_sdk::symbol_short!("clawback"));
+    let topic1 = Address::try_from_val(&env, &topics.get(1).unwrap()).unwrap();
+    assert_eq!(topic1, admin);
+    let data_vec = soroban_sdk::Vec::<soroban_sdk::Val>::try_from_val(&env, &event.2).unwrap();
+    let data_from = Address::try_from_val(&env, &data_vec.get(0).unwrap()).unwrap();
+    let data_amount = i128::try_from_val(&env, &data_vec.get(1).unwrap()).unwrap();
+    assert_eq!(data_from, user);
+    assert_eq!(data_amount, 200i128);
 }

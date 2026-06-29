@@ -1,4 +1,4 @@
-use soroban_sdk::{testutils::{Address as _, Events as _, Ledger as _}, Address, Env};
+use soroban_sdk::{testutils::{Address as _, Events as _, Ledger as _}, Address, Env, Symbol, TryFromVal};
 
 use crate::balance::read_balance;
 use crate::contract::VeritixToken;
@@ -480,6 +480,290 @@ fn test_expire_dispute_before_expiry_panics() {
         let expiry = e.ledger().sequence() + 100;
         let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone(), Bytes::new(&e), expiry);
         expire_dispute(&e, dispute_id);
+    });
+}
+
+// --- Event content tests ---
+
+// Verifies that open_dispute emits ("disp_open", escrow_id, claimant) topics
+// and the evidence Bytes as data.
+#[test]
+fn test_open_dispute_event_topics_and_data() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver = Address::generate(&e);
+    let evidence = Bytes::from_slice(&e, b"invoice-42");
+    let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
+
+    e.as_contract(&contract_id, || {
+        open_dispute(
+            &e,
+            depositor.clone(),
+            escrow_id,
+            resolver.clone(),
+            evidence.clone(),
+            e.ledger().sequence() + 500,
+        );
+    });
+
+    let events = e.events().all();
+    let event = events.last().unwrap();
+    let topics = event.1;
+    assert_eq!(topics.len(), 3);
+    let t0 = Symbol::try_from_val(&e, &topics.get(0).unwrap()).unwrap();
+    assert_eq!(t0, soroban_sdk::symbol_short!("disp_open"));
+    let t1 = u32::try_from_val(&e, &topics.get(1).unwrap()).unwrap();
+    assert_eq!(t1, escrow_id);
+    let t2 = Address::try_from_val(&e, &topics.get(2).unwrap()).unwrap();
+    assert_eq!(t2, depositor);
+    let data_evidence = Bytes::try_from_val(&e, &event.2).unwrap();
+    assert_eq!(data_evidence, evidence);
+}
+
+// Verifies that resolve_dispute emits 2 events: an escrow settlement event
+// followed by ("disp_rslv", dispute_id, resolver) with release_to_beneficiary
+// as bool data.
+#[test]
+fn test_resolve_dispute_event_topics_and_data() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver = Address::generate(&e);
+    let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
+
+    e.as_contract(&contract_id, || {
+        let dispute_id = open_dispute(
+            &e,
+            depositor.clone(),
+            escrow_id,
+            resolver.clone(),
+            Bytes::new(&e),
+            e.ledger().sequence() + 1000,
+        );
+        let before = e.events().all().len();
+        // resolve for depositor (release_to_beneficiary = false → escr_rfnd emitted)
+        resolve_dispute(&e, resolver.clone(), dispute_id, false);
+
+        let events = e.events().all();
+        // settle_escrow_by_outcome emits escr_rfnd, then disp_rslv
+        assert_eq!(events.len(), before + 2);
+
+        let last = events.last().unwrap();
+        let topics = last.1;
+        assert_eq!(topics.len(), 3);
+        let t0 = Symbol::try_from_val(&e, &topics.get(0).unwrap()).unwrap();
+        assert_eq!(t0, soroban_sdk::symbol_short!("disp_rslv"));
+        let t1 = u32::try_from_val(&e, &topics.get(1).unwrap()).unwrap();
+        assert_eq!(t1, dispute_id);
+        let t2 = Address::try_from_val(&e, &topics.get(2).unwrap()).unwrap();
+        assert_eq!(t2, resolver);
+        let data_release = bool::try_from_val(&e, &last.2).unwrap();
+        assert!(!data_release);
+    });
+}
+
+// --- Dispute lifecycle / terminal-state tests ---
+
+// Verifies that resolving for the beneficiary transfers the locked amount to the
+// beneficiary and leaves the depositor with zero (the funds were never returned).
+#[test]
+fn test_resolve_for_beneficiary_releases_funds_to_beneficiary() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver = Address::generate(&e);
+    let (depositor, beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
+    let amount = 1_000i128;
+
+    e.as_contract(&contract_id, || {
+        // Depositor opens the dispute; resolver rules in favour of beneficiary.
+        let dispute_id = open_dispute(
+            &e,
+            depositor.clone(),
+            escrow_id,
+            resolver.clone(),
+            Bytes::new(&e),
+            e.ledger().sequence() + 1000,
+        );
+        resolve_dispute(&e, resolver.clone(), dispute_id, true);
+
+        assert_eq!(read_balance(&e, beneficiary.clone()), amount);
+        assert_eq!(read_balance(&e, depositor.clone()), 0);
+        let escrow = get_escrow(&e, escrow_id);
+        assert!(escrow.released);
+        assert!(!escrow.refunded);
+    });
+}
+
+// Verifies that resolving for the depositor returns the locked amount to the
+// depositor and leaves the beneficiary with zero.
+#[test]
+fn test_resolve_for_depositor_refunds_funds_to_depositor() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver = Address::generate(&e);
+    let (depositor, beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
+    let amount = 1_000i128;
+
+    e.as_contract(&contract_id, || {
+        let dispute_id = open_dispute(
+            &e,
+            beneficiary.clone(),
+            escrow_id,
+            resolver.clone(),
+            Bytes::new(&e),
+            e.ledger().sequence() + 1000,
+        );
+        resolve_dispute(&e, resolver.clone(), dispute_id, false);
+
+        assert_eq!(read_balance(&e, depositor.clone()), amount);
+        assert_eq!(read_balance(&e, beneficiary.clone()), 0);
+        let escrow = get_escrow(&e, escrow_id);
+        assert!(escrow.refunded);
+        assert!(!escrow.released);
+    });
+}
+
+// Ensures that calling release_escrow on an escrow already released via dispute
+// resolution panics with "already settled" — the escrow is a terminal state.
+#[test]
+#[should_panic(expected = "already settled")]
+fn test_release_escrow_after_dispute_resolved_for_beneficiary_panics() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver = Address::generate(&e);
+    let (_depositor, beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
+
+    e.as_contract(&contract_id, || {
+        let dispute_id = open_dispute(
+            &e,
+            beneficiary.clone(),
+            escrow_id,
+            resolver.clone(),
+            Bytes::new(&e),
+            e.ledger().sequence() + 1000,
+        );
+        resolve_dispute(&e, resolver.clone(), dispute_id, true);
+        // Escrow is now released — a second release must panic.
+        crate::escrow::release_escrow(&e, beneficiary.clone(), escrow_id);
+    });
+}
+
+// Ensures that calling refund_escrow on an escrow already refunded via dispute
+// resolution panics — the refunded state is terminal.
+#[test]
+#[should_panic(expected = "already settled")]
+fn test_refund_escrow_after_dispute_resolved_for_depositor_panics() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver = Address::generate(&e);
+    let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
+
+    e.as_contract(&contract_id, || {
+        let dispute_id = open_dispute(
+            &e,
+            depositor.clone(),
+            escrow_id,
+            resolver.clone(),
+            Bytes::new(&e),
+            e.ledger().sequence() + 1000,
+        );
+        resolve_dispute(&e, resolver.clone(), dispute_id, false);
+        // Escrow is now refunded — a second refund must panic.
+        crate::escrow::refund_escrow(&e, depositor.clone(), escrow_id);
+    });
+}
+
+// Ensures that opening a second dispute on the same escrow while the first is
+// still open panics with "DisputeAlreadyOpen" — one dispute per escrow at a time.
+#[test]
+#[should_panic(expected = "DisputeAlreadyOpen")]
+fn test_open_second_dispute_on_same_escrow_while_first_is_open_panics() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver = Address::generate(&e);
+    let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
+
+    e.as_contract(&contract_id, || {
+        open_dispute(
+            &e,
+            depositor.clone(),
+            escrow_id,
+            resolver.clone(),
+            Bytes::new(&e),
+            e.ledger().sequence() + 1000,
+        );
+        // First dispute is still open — opening another must panic.
+        open_dispute(
+            &e,
+            depositor.clone(),
+            escrow_id,
+            resolver.clone(),
+            Bytes::new(&e),
+            e.ledger().sequence() + 1000,
+        );
+    });
+}
+
+// Verifies that the disp_rslv event carries the correct outcome bool —
+// tests the beneficiary path (true) complementing the depositor path tested
+// in test_resolve_dispute_event_topics_and_data.
+#[test]
+fn test_resolve_dispute_emits_event_with_correct_outcome() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver = Address::generate(&e);
+    let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
+
+    e.as_contract(&contract_id, || {
+        let dispute_id = open_dispute(
+            &e,
+            depositor.clone(),
+            escrow_id,
+            resolver.clone(),
+            Bytes::new(&e),
+            e.ledger().sequence() + 1000,
+        );
+        let before = e.events().all().len();
+        // Resolve for beneficiary → release_to_beneficiary = true
+        resolve_dispute(&e, resolver.clone(), dispute_id, true);
+
+        let events = e.events().all();
+        // settle_escrow_by_outcome emits escr_rls, then disp_rslv
+        assert_eq!(events.len(), before + 2);
+        let last = events.last().unwrap();
+        let t0 = Symbol::try_from_val(&e, &last.1.get(0).unwrap()).unwrap();
+        assert_eq!(t0, soroban_sdk::symbol_short!("disp_rslv"));
+        let outcome = bool::try_from_val(&e, &last.2).unwrap();
+        assert!(outcome, "event data must be true when resolved for beneficiary");
+    });
+}
+
+// Verifies that dispute IDs are assigned sequentially — three disputes opened
+// on three separate escrows receive IDs 1, 2, 3 with no gaps.
+#[test]
+fn test_dispute_counter_increments_sequentially() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver = Address::generate(&e);
+    let (d1, _b1, eid1) = setup_escrow(&e, &contract_id);
+    let (d2, _b2, eid2) = setup_escrow(&e, &contract_id);
+    let (d3, _b3, eid3) = setup_escrow(&e, &contract_id);
+
+    e.as_contract(&contract_id, || {
+        let id1 = open_dispute(
+            &e, d1.clone(), eid1, resolver.clone(),
+            Bytes::new(&e), e.ledger().sequence() + 1000,
+        );
+        let id2 = open_dispute(
+            &e, d2.clone(), eid2, resolver.clone(),
+            Bytes::new(&e), e.ledger().sequence() + 1000,
+        );
+        let id3 = open_dispute(
+            &e, d3.clone(), eid3, resolver.clone(),
+            Bytes::new(&e), e.ledger().sequence() + 1000,
+        );
+        assert_eq!(id1, 1);
+        assert_eq!(id2, 2);
+        assert_eq!(id3, 3);
     });
 }
 

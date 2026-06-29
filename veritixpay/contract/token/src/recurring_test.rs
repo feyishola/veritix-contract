@@ -2,7 +2,7 @@
 mod recurring_tests {
     use soroban_sdk::{
         testutils::{Address as _, Events as _, Ledger as _},
-        Address, Env,
+        Address, Env, Symbol, TryFromVal,
     };
 
     use crate::balance::read_balance;
@@ -522,6 +522,91 @@ mod recurring_tests {
 
         // Verify the payee contract received the tokens
         assert_eq!(payee_client.balance(&payee_contract_id), 500i128);
+    }
+
+    // --- Event content tests ---
+
+    // Verifies that setup_recurring emits ("recur_stp", payer) topics and
+    // (payee, amount) as tuple data.
+    #[test]
+    fn test_setup_recurring_event_topics_and_data() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let (payer, payee, _id) = fund_and_setup(&e, &contract_id, 500, 100);
+
+        let events = e.events().all();
+        assert_eq!(events.len(), 1);
+        let event = events.last().unwrap();
+        let topics = event.1;
+        assert_eq!(topics.len(), 2);
+        let t0 = Symbol::try_from_val(&e, &topics.get(0).unwrap()).unwrap();
+        assert_eq!(t0, soroban_sdk::symbol_short!("recur_stp"));
+        let t1 = Address::try_from_val(&e, &topics.get(1).unwrap()).unwrap();
+        assert_eq!(t1, payer);
+        // data is (payee, amount) encoded as Vec<Val>
+        let data_vec =
+            soroban_sdk::Vec::<soroban_sdk::Val>::try_from_val(&e, &event.2).unwrap();
+        let data_payee = Address::try_from_val(&e, &data_vec.get(0).unwrap()).unwrap();
+        assert_eq!(data_payee, payee);
+        let data_amount = i128::try_from_val(&e, &data_vec.get(1).unwrap()).unwrap();
+        assert_eq!(data_amount, 500);
+    }
+
+    // Verifies that execute_recurring emits ("recur_exe", recurring_id) topics
+    // and amount as scalar data.
+    #[test]
+    fn test_execute_recurring_event_topics_and_data() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let (_payer, _payee, id) = fund_and_setup(&e, &contract_id, 500, 100);
+
+        let before = e.events().all().len();
+
+        e.as_contract(&contract_id, || {
+            e.ledger().with_mut(|l| l.sequence_number = e.ledger().sequence() + 101);
+            execute_recurring(&e, id);
+        });
+
+        let events = e.events().all();
+        assert_eq!(events.len(), before + 1);
+        let event = events.last().unwrap();
+        let topics = event.1;
+        assert_eq!(topics.len(), 2);
+        let t0 = Symbol::try_from_val(&e, &topics.get(0).unwrap()).unwrap();
+        assert_eq!(t0, soroban_sdk::symbol_short!("recur_exe"));
+        let t1 = u32::try_from_val(&e, &topics.get(1).unwrap()).unwrap();
+        assert_eq!(t1, id);
+        let data_amount = i128::try_from_val(&e, &event.2).unwrap();
+        assert_eq!(data_amount, 500);
+    }
+
+    // Verifies that cancel_recurring emits ("recur_cxl", recurring_id, caller)
+    // topics and unit () as data.
+    #[test]
+    fn test_cancel_recurring_event_topics_and_data() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let (payer, _payee, id) = fund_and_setup(&e, &contract_id, 500, 100);
+
+        let before = e.events().all().len();
+
+        e.as_contract(&contract_id, || {
+            cancel_recurring(&e, payer.clone(), id);
+        });
+
+        let events = e.events().all();
+        assert_eq!(events.len(), before + 1);
+        let event = events.last().unwrap();
+        let topics = event.1;
+        assert_eq!(topics.len(), 3);
+        let t0 = Symbol::try_from_val(&e, &topics.get(0).unwrap()).unwrap();
+        assert_eq!(t0, soroban_sdk::symbol_short!("recur_cxl"));
+        let t1 = u32::try_from_val(&e, &topics.get(1).unwrap()).unwrap();
+        assert_eq!(t1, id);
+        let t2 = Address::try_from_val(&e, &topics.get(2).unwrap()).unwrap();
+        assert_eq!(t2, payer);
+        // data is () (unit/void) — assert it is the void Val
+        assert!(event.2.is_void());
     }
 
     // --- Issue #275: Cancel recurring preserves payer balance ---

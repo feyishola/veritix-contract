@@ -1,4 +1,4 @@
-use soroban_sdk::{testutils::{Address as _, Events as _}, Address, Env, Vec};
+use soroban_sdk::{testutils::{Address as _, Events as _}, Address, Env, Symbol, TryFromVal, Vec};
 
 use crate::balance::read_balance;
 use crate::balance::read_total_supply;
@@ -603,6 +603,44 @@ fn test_create_split_total_bps_less_than_10000_panics() {
         crate::balance::receive_balance(&e, sender.clone(), 1000);
         let recipients = make_recipients(&e, &[(r1.clone(), 5000), (r2.clone(), 4000)]);
         create_split(&e, sender.clone(), recipients, 1000);
+    });
+}
+
+// --- Event content tests ---
+
+// NOTE: create_split emits no event — intentional absence, distribute is the
+// observable action that off-chain indexers track.
+
+// Verifies that distribute emits ("splt_dist", split_id, sender) topics and
+// total_amount as scalar data.
+#[test]
+fn test_distribute_event_topics_and_data() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+    let amount = 1_000i128;
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), amount);
+        let recipients = make_recipients(&e, &[(r1.clone(), 10000)]);
+        let split_id = create_split(&e, sender.clone(), recipients, amount);
+        // create_split emits no event, so before == 0
+        distribute(&e, sender.clone(), split_id);
+
+        let events = e.events().all();
+        assert_eq!(events.len(), 1);
+        let event = events.last().unwrap();
+        let topics = event.1;
+        assert_eq!(topics.len(), 3);
+        let t0 = Symbol::try_from_val(&e, &topics.get(0).unwrap()).unwrap();
+        assert_eq!(t0, soroban_sdk::symbol_short!("splt_dist"));
+        let t1 = u32::try_from_val(&e, &topics.get(1).unwrap()).unwrap();
+        assert_eq!(t1, split_id);
+        let t2 = Address::try_from_val(&e, &topics.get(2).unwrap()).unwrap();
+        assert_eq!(t2, sender);
+        let data_amount = i128::try_from_val(&e, &event.2).unwrap();
+        assert_eq!(data_amount, amount);
     });
 }
 
