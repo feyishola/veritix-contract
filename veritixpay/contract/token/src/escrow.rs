@@ -194,6 +194,26 @@ pub fn try_get_escrow(e: &Env, escrow_id: u32) -> Result<EscrowRecord, &'static 
     }
 }
 
+/// Top up an existing escrow with additional funds. Rejected if a dispute is open.
+pub fn topup_escrow(e: &Env, depositor: Address, escrow_id: u32, amount: i128) {
+    depositor.require_auth();
+    require_positive_amount(amount);
+    if e.storage().persistent().has(&DataKey::EscrowDispute(escrow_id)) {
+        panic!("DisputeOpen: cannot top up an escrow under active dispute");
+    }
+    let mut record = get_escrow(e, escrow_id);
+    if record.released || record.refunded {
+        panic!("escrow already settled");
+    }
+    if record.depositor != depositor {
+        panic!("not the depositor");
+    }
+    spend_balance(e, depositor.clone(), amount);
+    receive_balance(e, e.current_contract_address(), amount);
+    record.amount += amount;
+    write_persistent_record(e, &DataKey::Escrow(escrow_id), &record);
+}
+
 /// Admin escape hatch: forcibly settles a stuck escrow by sending funds to
 /// `recipient`. Used when the normal beneficiary or depositor is frozen and
 /// the standard release/refund paths are deadlocked.

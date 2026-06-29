@@ -429,7 +429,4 @@ impl VeritixToken {
     pub fn is_executable(e: Env, recurring_id: u32) -> bool {
         is_executable(&e, recurring_id)
     }
-}   pub fn is_executable(e: Env, recurring_id: u32) -> bool {
-        is_executable(&e, recurring_id)
-    }
 }

@@ -22,6 +22,9 @@ pub enum DataKey {
     ClaimantDisputes(Address),
     LastEscrowTime(Address),
     Allowance(Address, Address),
+    Frozen(Address),
+    EscrowDispute(u32),
+    LastEscrowTime(Address),
 }
 
 #[contracttype]
