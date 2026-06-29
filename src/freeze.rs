@@ -1,26 +1,27 @@
-// Assuming a standard storage context layout or wrapper struct
-pub fn freeze_account(env: &Env, account_id: Address) {
-    // 1. Fetch the current status from storage
-    let is_frozen: bool = env.storage().instance().get(&account_id).unwrap_or(false);
+use soroban_sdk::{Address, Env};
+use crate::storage_types::DataKey;
 
-    // 2. Strict Check: Panic on redundant execution state
+pub fn freeze_account(env: &Env, admin: &Address, account_id: &Address) {
+    // prevent admin from freezing themselves
+    let stored_admin: Address = env.storage().persistent().get(&DataKey::Admin).expect("admin not set");
+    if account_id == &stored_admin {
+        panic!("InvalidFreeze: cannot freeze the admin address");
+    }
+    let is_frozen: bool = env.storage().persistent().get(&DataKey::Frozen(account_id.clone())).unwrap_or(false);
     if is_frozen {
         panic!("AlreadyFrozen: account is already frozen");
     }
-
-    // 3. Write state only if valid
-    env.storage().instance().set(&account_id, &true);
+    env.storage().persistent().set(&DataKey::Frozen(account_id.clone()), &true);
 }
 
-pub fn unfreeze_account(env: &Env, account_id: Address) {
-    // 1. Fetch the current status from storage
-    let is_frozen: bool = env.storage().instance().get(&account_id).unwrap_or(false);
-
-    // 2. Strict Check: Panic if trying to unfreeze an already active account
+pub fn unfreeze_account(env: &Env, _admin: &Address, account_id: &Address) {
+    let is_frozen: bool = env.storage().persistent().get(&DataKey::Frozen(account_id.clone())).unwrap_or(false);
     if !is_frozen {
         panic!("NotFrozen: account is not frozen");
     }
+    env.storage().persistent().remove(&DataKey::Frozen(account_id.clone()));
+}
 
-    // 3. Clear or invert state safely
-    env.storage().instance().set(&account_id, &false);
+pub fn is_frozen(env: &Env, account_id: &Address) -> bool {
+    env.storage().persistent().get(&DataKey::Frozen(account_id.clone())).unwrap_or(false)
 }

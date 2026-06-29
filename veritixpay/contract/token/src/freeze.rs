@@ -13,8 +13,16 @@ pub fn is_frozen(e: &Env, addr: &Address) -> bool {
 
 pub fn freeze_account(e: &Env, _admin: Address, target: Address) {
     let admin = _admin;
+    // prevent admin from freezing themselves
+    let stored_admin: Address = e.storage().persistent().get(&DataKey::Admin).expect("admin not set");
+    if target == stored_admin {
+        panic!("InvalidFreeze: cannot freeze the admin address");
+    }
     let key = DataKey::Freeze(target.clone());
     let storage = e.storage().persistent();
+    if storage.get::<DataKey, bool>(&key).unwrap_or(false) {
+        panic!("AlreadyFrozen: account is already frozen");
+    }
     storage.set(&key, &true);
     storage.extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
 
@@ -32,6 +40,9 @@ pub fn freeze_account(e: &Env, _admin: Address, target: Address) {
 
 pub fn unfreeze_account(e: &Env, _admin: Address, target: Address) {
     let admin = _admin;
+    if !e.storage().persistent().get::<DataKey, bool>(&DataKey::Freeze(target.clone())).unwrap_or(false) {
+        panic!("NotFrozen: account is not frozen");
+    }
     e.storage()
         .persistent()
         .remove(&DataKey::Freeze(target.clone()));

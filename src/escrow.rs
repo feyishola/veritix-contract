@@ -37,6 +37,8 @@ pub struct EscrowRecord {
     pub released: bool,         // true only when fully released
     pub refunded: bool,
     pub memo: Bytes,            // #175: arbitrary tag — max 64 bytes
+    pub liened_by: Option<Address>,
+    pub lien_amount: i128,
     pub created_at_ledger: u32,
 }
 
@@ -135,6 +137,8 @@ pub fn create_escrow(
         released: false,
         refunded: false,
         memo,               // #175
+        liened_by: None,
+        lien_amount: 0,
         created_at_ledger: e.ledger().sequence(),
     };
 
@@ -181,10 +185,29 @@ pub fn release_escrow(e: Env, caller: Address, escrow_id: u32) {
 
     record.released_amount = record.amount;
     record.released = true;
+    
+    let token_client = token::Client::new(&e, &record.token);
+    
+    let lien_transfer = if record.liened_by.is_some() && record.lien_amount > 0 {
+        let l_amount = record.lien_amount;
+        let l_by = record.liened_by.clone().unwrap();
+        // Clear the lien
+        record.liened_by = None;
+        record.lien_amount = 0;
+        
+        let to_lien = core::cmp::min(l_amount, remaining);
+        token_client.transfer(&e.current_contract_address(), &l_by, &to_lien);
+        to_lien
+    } else {
+        0
+    };
+    
     save_record(&e, &record);
 
-    let token_client = token::Client::new(&e, &record.token);
-    token_client.transfer(&e.current_contract_address(), &record.beneficiary, &remaining);
+    let to_beneficiary = remaining - lien_transfer;
+    if to_beneficiary > 0 {
+        token_client.transfer(&e.current_contract_address(), &record.beneficiary, &to_beneficiary);
+    }
 
     // #181: emit escrow_released event with memo for indexers
     e.events().publish(
@@ -271,6 +294,34 @@ pub fn refund_escrow(e: Env, caller: Address, escrow_id: u32) {
     );
 }
 
+pub fn place_lien(e: Env, creditor: Address, escrow_id: u32, lien_amount: i128) {
+    creditor.require_auth();
+    let mut record = load_record(&e, escrow_id);
+    
+    assert!(!record.released && !record.refunded, "escrow already settled");
+    assert!(record.liened_by.is_none(), "only one lien at a time");
+    assert!(lien_amount > 0, "lien amount must be positive");
+    
+    record.liened_by = Some(creditor);
+    record.lien_amount = lien_amount;
+    save_record(&e, &record);
+}
+
+pub fn clear_lien(e: Env, caller: Address, escrow_id: u32) {
+    caller.require_auth();
+    let mut record = load_record(&e, escrow_id);
+    
+    assert!(!record.released && !record.refunded, "escrow already settled");
+    assert!(record.liened_by.is_some(), "no active lien");
+    
+    let lien_owner = record.liened_by.clone().unwrap();
+    assert!(caller == record.depositor || caller == lien_owner, "not authorized to clear lien");
+    
+    record.liened_by = None;
+    record.lien_amount = 0;
+    save_record(&e, &record);
+}
+
 // ── Query helpers ─────────────────────────────────────────────────────────────
 
 pub fn get_escrows_by_depositor(e: Env, depositor: Address) -> Vec<u32> {
@@ -321,4 +372,19 @@ pub fn get_escrow_age(e: Env, escrow_id: u32) -> u32 {
     } else {
         e.ledger().sequence().saturating_sub(record.created_at_ledger)
     }
+}
+
+pub fn topup_escrow(e: Env, depositor: Address, escrow_id: u32, amount: i128) {
+    depositor.require_auth();
+    assert!(amount > 0, "amount must be positive");
+    if e.storage().persistent().has(&DataKey::EscrowDispute(escrow_id)) {
+        panic!("DisputeOpen: cannot top up an escrow under active dispute");
+    }
+    let mut record = load_record(&e, escrow_id);
+    assert!(!record.released && !record.refunded, "escrow already settled");
+    assert!(record.depositor == depositor, "not the depositor");
+    let token_client = token::Client::new(&e, &record.token);
+    token_client.transfer(&depositor, &e.current_contract_address(), &amount);
+    record.amount += amount;
+    save_record(&e, &record);
 }

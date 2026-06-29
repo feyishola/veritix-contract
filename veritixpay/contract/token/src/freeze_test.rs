@@ -57,6 +57,17 @@ fn test_unfreeze_not_frozen_panics() {
 }
 
 #[test]
+#[should_panic(expected = "InvalidFreeze")]
+fn test_freeze_admin_address_panics() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+
+    // Store admin in persistent storage so the guard can read it
+    env.storage().persistent().set(&crate::storage_types::DataKey::Admin, &admin);
+    freeze_account(&env, admin.clone(), admin);
+}
+
+#[test]
 #[should_panic]
 fn test_frozen_account_cannot_spend_balance() {
     let env = Env::default();
