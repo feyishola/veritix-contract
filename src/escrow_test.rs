@@ -480,6 +480,43 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod lien_tests {
+    use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Bytes, Env};
+    use crate::contract::{VeriTixPay, VeriTixPayClient};
+    use crate::test::create_token_contract;
+
+    #[test]
+    fn test_lien_mechanics() {
+        let e = Env::default();
+        e.mock_all_auths();
+        e.ledger().with_mut(|l| l.sequence = 100);
+
+        let depositor = Address::generate(&e);
+        let beneficiary = Address::generate(&e);
+        let creditor = Address::generate(&e);
+        let admin = Address::generate(&e);
+
+        let contract_id = e.register_contract(None, VeriTixPay);
+        let client = VeriTixPayClient::new(&e, &contract_id);
+        
+        let token = create_token_contract(&e, &admin);
+        let token_client = soroban_sdk::token::Client::new(&e, &token);
+        
+        token_client.mint(&depositor, &2000);
+        
+        let memo = Bytes::from_slice(&e, b"test lien");
+        let escrow_id = client.create_escrow(&depositor, &beneficiary, &token, &1000, &200, &memo);
+        
+        // Place a lien
+        client.place_lien(&creditor, &escrow_id, &300);
+        
+        // Release the escrow, should send 300 to creditor and 700 to beneficiary
+        client.release_escrow(&depositor, &escrow_id);
+        
+        assert_eq!(token_client.balance(&creditor), 300);
+        assert_eq!(token_client.balance(&beneficiary), 700);
+    }
 // ── Batch and Age Query tests ──────────────────────────────────────────────────
 
 #[test]
