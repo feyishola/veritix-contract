@@ -1,5 +1,5 @@
 use crate::admin::check_admin;
-use crate::allowance;
+use crate::allowance::write_allowance;
 use crate::balance::{decrease_supply, increase_supply, receive_balance, spend_balance};
 use crate::freeze::{freeze_account, unfreeze_account};
 use crate::validation::require_positive_amount;
@@ -21,7 +21,7 @@ pub fn clawback_batch(e: &Env, admin: Address, targets: Vec<(Address, i128)>) {
     }
     for i in 0..targets.len() {
         let (from, amount) = targets.get(i).unwrap();
-        if *from == e.current_contract_address() {
+        if from == e.current_contract_address() {
             panic!("InvalidClawback: cannot clawback from the contract address");
         }
         require_positive_amount(amount);
@@ -114,7 +114,7 @@ pub fn approve_batch(e: &Env, from: Address, approvals: Vec<(Address, i128, u32)
     }
     for i in 0..approvals.len() {
         let (spender, amount, expiration_ledger) = approvals.get(i).unwrap();
-        write_allowance(e, from.clone(), spender, amount, expiration_ledger);
+        write_allowance(e, from.clone(), spender.clone(), amount, expiration_ledger);
         e.events().publish((symbol_short!("approve"), from.clone(), spender), amount);
     }
 }

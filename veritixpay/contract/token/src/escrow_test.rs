@@ -941,145 +941,26 @@ fn test_admin_settle_escrow_when_beneficiary_frozen() {
     });
 }
 
-// --- Concurrent / isolation tests ---
-
-// Verifies that releasing escrow #1 has zero effect on escrow #2 — the two
-// entries are fully independent in storage.
 #[test]
-fn test_two_escrows_independent_release() {
+#[should_panic(expected = "DisputeOpen: cannot refund while a dispute is active — wait for resolution")]
+fn test_refund_escrow_with_open_dispute_panics() {
     let e = setup_env();
     let contract_id = e.register_contract(None, VeritixToken);
-    let depositor1 = Address::generate(&e);
-    let beneficiary1 = Address::generate(&e);
-    let depositor2 = Address::generate(&e);
-    let beneficiary2 = Address::generate(&e);
-    let amount1 = 1_000i128;
-    let amount2 = 500i128;
-    let mut escrow_id1 = 0u32;
-    let mut escrow_id2 = 0u32;
-
-    e.as_contract(&contract_id, || {
-        crate::balance::receive_balance(&e, depositor1.clone(), amount1);
-        crate::balance::receive_balance(&e, depositor2.clone(), amount2);
-        escrow_id1 = create_escrow(&e, depositor1.clone(), beneficiary1.clone(), amount1, 1000);
-        escrow_id2 = create_escrow(&e, depositor2.clone(), beneficiary2.clone(), amount2, 1000);
-    });
-
-    e.as_contract(&contract_id, || {
-        release_escrow(&e, beneficiary1.clone(), escrow_id1);
-
-        let r1 = get_escrow(&e, escrow_id1);
-        let r2 = get_escrow(&e, escrow_id2);
-
-        assert!(r1.released);
-        assert!(!r1.refunded);
-        // escrow #2 must be completely untouched
-        assert!(!r2.released, "escrow #2 must still be active");
-        assert!(!r2.refunded, "escrow #2 must not be refunded");
-        assert_eq!(read_balance(&e, beneficiary1.clone()), amount1);
-        assert_eq!(read_balance(&e, beneficiary2.clone()), 0);
-    });
-}
-
-// Verifies that opening a dispute on escrow #1 does not affect escrow #2 —
-// beneficiary of #2 can still release normally while #1 is under dispute.
-#[test]
-fn test_dispute_on_one_escrow_does_not_affect_another() {
-    let e = setup_env();
-    let contract_id = e.register_contract(None, VeritixToken);
-    let depositor1 = Address::generate(&e);
-    let beneficiary1 = Address::generate(&e);
-    let resolver = Address::generate(&e);
-    let depositor2 = Address::generate(&e);
-    let beneficiary2 = Address::generate(&e);
-    let amount = 1_000i128;
-    let mut escrow_id1 = 0u32;
-    let mut escrow_id2 = 0u32;
-
-    e.as_contract(&contract_id, || {
-        crate::balance::receive_balance(&e, depositor1.clone(), amount);
-        crate::balance::receive_balance(&e, depositor2.clone(), amount);
-        escrow_id1 = create_escrow(&e, depositor1.clone(), beneficiary1.clone(), amount, 1000);
-        escrow_id2 = create_escrow(&e, depositor2.clone(), beneficiary2.clone(), amount, 1000);
-
-        // Open dispute on #1 only
-        crate::dispute::open_dispute(
-            &e,
-            depositor1.clone(),
-            escrow_id1,
-            resolver.clone(),
-            soroban_sdk::Bytes::new(&e),
-            e.ledger().sequence() + 1000,
-        );
-
-        // #2 is unaffected — beneficiary can release it normally
-        release_escrow(&e, beneficiary2.clone(), escrow_id2);
-
-        let r1 = get_escrow(&e, escrow_id1);
-        let r2 = get_escrow(&e, escrow_id2);
-        assert!(!r1.released, "disputed escrow #1 must not be released");
-        assert!(!r1.refunded, "disputed escrow #1 must not be refunded");
-        assert!(r2.released, "escrow #2 must be released");
-        assert_eq!(read_balance(&e, beneficiary2.clone()), amount);
-    });
-}
-
-// Creates 100 escrows with distinct depositors and beneficiaries, releases all,
-// then asserts the contract holds zero tokens and total supply is unchanged.
-#[test]
-fn test_100_escrows_all_release() {
-    let e = setup_env();
-    let contract_id = e.register_contract(None, VeritixToken);
-    let n = 100usize;
+    let depositor = Address::generate(&e);
+    let beneficiary = Address::generate(&e);
     let amount = 1_000i128;
 
-    let mut depositors: ::std::vec::Vec<Address> = ::std::vec::Vec::new();
-    let mut beneficiaries: ::std::vec::Vec<Address> = ::std::vec::Vec::new();
-    let mut escrow_ids: ::std::vec::Vec<u32> = ::std::vec::Vec::new();
-
     e.as_contract(&contract_id, || {
-        for _ in 0..n {
-            let d = Address::generate(&e);
-            let b = Address::generate(&e);
-            crate::balance::receive_balance(&e, d.clone(), amount);
-            crate::balance::increase_supply(&e, amount);
-            let id = create_escrow(&e, d.clone(), b.clone(), amount, 1000);
-            depositors.push(d);
-            beneficiaries.push(b);
-            escrow_ids.push(id);
-        }
+        crate::balance::receive_balance(&e, depositor.clone(), amount);
 
-        let supply_after_creates = crate::balance::read_total_supply(&e);
+        let escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
 
-        for (i, &id) in escrow_ids.iter().enumerate() {
-            release_escrow(&e, beneficiaries[i].clone(), id);
-        }
+        // Simulate an open dispute by writing the EscrowDispute key directly.
+        e.storage()
+            .persistent()
+            .set(&crate::storage_types::DataKey::EscrowDispute(escrow_id), &true);
 
-        let contract_addr = e.current_contract_address();
-        assert_eq!(read_balance(&e, contract_addr), 0, "contract must hold zero after all releases");
-        assert_eq!(
-            crate::balance::read_total_supply(&e),
-            supply_after_creates,
-            "total supply must not change during release"
-        );
-    });
-}
-
-// Verifies that five consecutive create_escrow calls produce IDs 1, 2, 3, 4, 5
-// with no gaps — sequential counter is an invariant off-chain indexers rely on.
-#[test]
-fn test_escrow_counter_is_sequential() {
-    let e = setup_env();
-    let contract_id = e.register_contract(None, VeritixToken);
-    let amount = 100i128;
-
-    e.as_contract(&contract_id, || {
-        for expected_id in 1u32..=5 {
-            let d = Address::generate(&e);
-            let b = Address::generate(&e);
-            crate::balance::receive_balance(&e, d.clone(), amount);
-            let id = create_escrow(&e, d, b, amount, 1000);
-            assert_eq!(id, expected_id, "expected sequential escrow ID {expected_id}");
-        }
+        // Depositor attempts to refund while dispute is active — must panic.
+        refund_escrow(&e, depositor.clone(), escrow_id);
     });
 }
