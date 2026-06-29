@@ -622,3 +622,52 @@ fn test_create_split_total_bps_more_than_10000_panics() {
         create_split(&e, sender.clone(), recipients, 1000);
     });
 }
+
+// Required test names per issue #425 specification.
+#[test]
+fn test_create_split_shares_sum_to_10000_ok() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+    let r2 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 1000);
+        let recipients = make_recipients(&e, &[(r1.clone(), 5000), (r2.clone(), 5000)]);
+        let split_id = create_split(&e, sender.clone(), recipients, 1000);
+        assert_eq!(split_id, 1);
+    });
+}
+
+#[test]
+#[should_panic(expected = "InvalidShares: recipient shares must sum to exactly 10000 bps")]
+fn test_create_split_shares_sum_to_9999_panics() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+    let r2 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 1000);
+        let recipients = make_recipients(&e, &[(r1.clone(), 5000), (r2.clone(), 4999)]);
+        create_split(&e, sender.clone(), recipients, 1000);
+    });
+}
+
+#[test]
+#[should_panic(expected = "InvalidShares: recipient shares must sum to exactly 10000 bps")]
+fn test_create_split_shares_sum_to_10001_panics() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+    let r2 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 1000);
+        let recipients = make_recipients(&e, &[(r1.clone(), 5000), (r2.clone(), 5001)]);
+        create_split(&e, sender.clone(), recipients, 1000);
+    });
+}

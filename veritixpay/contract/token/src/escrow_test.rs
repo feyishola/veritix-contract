@@ -846,3 +846,27 @@ fn test_admin_settle_escrow_when_beneficiary_frozen() {
         assert!(get_escrow(&e, escrow_id).released);
     });
 }
+
+#[test]
+#[should_panic(expected = "DisputeOpen: cannot refund while a dispute is active — wait for resolution")]
+fn test_refund_escrow_with_open_dispute_panics() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let depositor = Address::generate(&e);
+    let beneficiary = Address::generate(&e);
+    let amount = 1_000i128;
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor.clone(), amount);
+
+        let escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
+
+        // Simulate an open dispute by writing the EscrowDispute key directly.
+        e.storage()
+            .persistent()
+            .set(&crate::storage_types::DataKey::EscrowDispute(escrow_id), &true);
+
+        // Depositor attempts to refund while dispute is active — must panic.
+        refund_escrow(&e, depositor.clone(), escrow_id);
+    });
+}

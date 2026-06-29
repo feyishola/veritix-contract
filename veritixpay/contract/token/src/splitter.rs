@@ -121,6 +121,12 @@ pub fn distribute(e: &Env, caller: Address, split_id: u32) {
     let mut remaining_amount = record.total_amount;
     let len = record.recipients.len();
 
+    // 3. Mark distributed BEFORE the loop — intentional re-entrancy protection.
+    // Any re-entrant call to distribute sees distributed=true and panics immediately,
+    // preventing double-distribution even if a recipient contract calls back.
+    record.distributed = true;
+    write_persistent_record(e, &DataKey::Split(split_id), &record);
+
     // 2. Proportional Distribution
     for (i, recipient) in record.recipients.iter().enumerate() {
         let amount_to_send = if i == (len as usize - 1) {
@@ -142,10 +148,6 @@ pub fn distribute(e: &Env, caller: Address, split_id: u32) {
             .checked_sub(amount_to_send)
             .expect("split remaining underflow");
     }
-
-    // 3. Mark distributed
-    record.distributed = true;
-    write_persistent_record(e, &DataKey::Split(split_id), &record);
 
     // 4. Emit Observability Event
     e.events().publish(

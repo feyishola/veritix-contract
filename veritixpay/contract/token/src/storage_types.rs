@@ -67,7 +67,6 @@ pub enum DataKey {
     OwnerAllowances(Address),
     Paused,
     ClawbackCoSigner,
-    HolderSet,
     PendingAdmin,
     ExpiryWarned(u32),
     Nonce(Address),
